@@ -1,0 +1,115 @@
+{
+  "theme": "dark",
+  "archetype": "4 (Swiss & High-Contrast - Adapted for Brutalist Streetwear)",
+  "vibe": "Modern Streetwear, Brutalist E-commerce, Underground UK Fashion",
+  "colors": {
+    "background": "#050505",
+    "surface": "#0F0F0F",
+    "surface_glass": "rgba(5, 5, 5, 0.7)",
+    "primary": "#39FF14",
+    "primary_hover": "#32E012",
+    "primary_text": "#000000",
+    "secondary": "#C0C0C0",
+    "text_main": "#F3F4F6",
+    "text_muted": "#9CA3AF",
+    "border": "#27272A",
+    "border_light": "rgba(255, 255, 255, 0.1)"
+  },
+  "typography": {
+    "heading_font": "Clash Display",
+    "body_font": "Satoshi",
+    "h1": "text-5xl md:text-6xl font-black tracking-tighter uppercase",
+    "h2": "text-3xl md:text-4xl font-bold tracking-tight uppercase",
+    "h3": "text-xl md:text-2xl font-semibold tracking-tight",
+    "body": "text-base font-normal leading-relaxed text-[#9CA3AF]",
+    "overline": "text-xs font-bold tracking-[0.2em] uppercase text-[#C0C0C0]"
+  },
+  "spacing": {
+    "section_y": "py-24 md:py-32",
+    "container_x": "px-6 md:px-12",
+    "grid_gap": "gap-8 md:gap-12"
+  },
+  "layout_strategies": {
+    "general": "Grid Borders (The 'Technical' Look). Use border-collapse style layouts where possible. 1px solid borders separating sections and items. Asymmetry in hero sections.",
+    "hero": "Inverted layout or split grid. Massive uppercase typography, overlapping images, overlay max bg-black/40. Consider a slow-moving marquee for brand names.",
+    "product_grid": "Bento-style or strict technical grid. Images should fill the cell. No gap between grid lines if using border-collapse.",
+    "brand_of_the_week": "Dominant asymmetrical section. Span multiple columns. Use neon green accents for the 'Boosted' or 'Featured' badges."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#39FF14] text-black font-bold uppercase tracking-wide rounded-none border border-[#39FF14] hover:bg-white hover:text-black hover:border-white transition-all duration-300",
+      "secondary": "bg-transparent text-white border border-white/20 hover:border-white hover:bg-white/5 rounded-none transition-all duration-300",
+      "boost": "bg-gradient-to-r from-[#C0C0C0] to-[#39FF14] text-black font-bold uppercase tracking-wide rounded-none border-none transition-all duration-300"
+    },
+    "cards": {
+      "product": "bg-transparent border border-white/10 rounded-none overflow-hidden group hover:border-[#39FF14]/50 transition-colors cursor-pointer",
+      "brand_profile": "bg-[#0F0F0F] border border-white/10 p-6 md:p-8 rounded-none flex flex-col items-center text-center hover:bg-[#1A1A1A] transition-colors"
+    },
+    "header": "Sticky top-0 z-50 backdrop-blur-xl bg-black/60 border-b border-white/10",
+    "inputs": "bg-transparent border border-white/20 rounded-none px-4 py-3 focus:border-[#39FF14] focus:ring-1 focus:ring-[#39FF14] text-white placeholder-gray-600 transition-all",
+    "badges": "bg-[#39FF14]/10 text-[#39FF14] border border-[#39FF14]/30 px-3 py-1 text-xs uppercase tracking-widest"
+  },
+  "motion": {
+    "hover": "Crisp, instantaneous transitions for layout changes. Smooth color transitions (0.2s ease). Image scale on hover in product cards (scale-105).",
+    "entrance": "Staggered fade-up for product grids. Minimalist and fast."
+  },
+  "assets": {
+    "icons": "lucide-react (Use crisp, strict lines)",
+    "images": {
+      "hero_background": [
+        {
+          "url": "https://images.pexels.com/photos/5319298/pexels-photo-5319298.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Main hero image showcasing streetwear culture and community vibes."
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1633005992198-ee5761c97983?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHx1cmJhbiUyMHRleHR1cmUlMjBibGFjayUyMGNvbmNyZXRlfGVufDB8fHx8MTc3NjExNDA0MXww&ixlib=rb-4.1.0&q=85",
+          "description": "Concrete urban texture, ideal for abstract background sections or massive dark footers."
+        }
+      ],
+      "brand_of_the_week": [
+        {
+          "url": "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85",
+          "description": "Edgy streetwear model photo, perfect for the highlighted 'Brand of the Week' banner."
+        }
+      ],
+      "products": [
+        {
+          "url": "https://images.unsplash.com/photo-1602078019624-f4355d0687fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHw0fHxzbmVha2VycyUyMHN0cmVldHdlYXJ8ZW58MHx8fHwxNzc2MTE0MDQxfDA&ixlib=rb-4.1.0&q=85",
+          "description": "Streetwear sneakers for product listing."
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1723776964688-8d2eb30327c7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwzfHxzbmVha2VycyUyMHN0cmVldHdlYXJ8ZW58MHx8fHwxNzc2MTE0MDQxfDA&ixlib=rb-4.1.0&q=85",
+          "description": "Sneakers and jeans styling - perfect for product listing placeholders."
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1769162240814-daaede8751fc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwyfHxjbG90aGluZyUyMHJhY2slMjB1cmJhbnxlbnwwfHx8fDE3NzYxMTQwMjV8MA&ixlib=rb-4.1.0&q=85",
+          "description": "Urban clothing rack - use for category banners."
+        }
+      ],
+      "logos": [
+        {
+          "url": "https://images.pexels.com/photos/3395708/pexels-photo-3395708.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+          "description": "Use this as a placeholder for a streetwear brand profile picture/logo if textual logo isn't used."
+        }
+      ],
+      "accents": [
+        {
+          "url": "https://images.unsplash.com/photo-1766329146400-662caf5d1161?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwyfHxuZW9uJTIwZ3JlZW4lMjBsaWdodGluZ3xlbnwwfHx8fDE3NzYxMTQwNDF8MA&ixlib=rb-4.1.0&q=85",
+          "description": "Neon green lighting accent - can be used creatively as a cutout or banner background overlay."
+        }
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "INSTALL FONTS: Ensure you import 'Clash Display' and 'Satoshi' via standard CDN (e.g. Fontshare) in the index.html or global css.",
+    "LAYOUT: Do not use rounded cards. Everything must be sharp, 0px border-radius (rounded-none), with 1px borders (border-white/10). This gives the brutalist streetwear edge.",
+    "HERO OVERLAYS: If text is placed over images, ensure max bg-black/50 overlay. Use text-shadow if necessary for contrast.",
+    "CTA BUTTONS: The primary action (Buy, Submit Application, Checkout) MUST use the primary neon green (#39FF14) with black text. Do not overuse it elsewhere. Keep secondary buttons silver/transparent.",
+    "TESTING: Add data-testid attributes (kebab-case) to all interactive elements (buttons, nav links, form inputs) as per the guidelines.",
+    "MARQUEE: Add a slow marquee using 'react-fast-marquee' in the hero or footer section containing trending independent UK brand names (e.g., 'Corteiz', 'Trapstar', 'Unknown London', 'Represent').",
+    "FORMS: Use Shadcn UI for forms, but override the rounded corners to rounded-none and apply the dark brutalist styling (transparent bg, border-b or full border).",
+    "DATA: For mock data, ensure all products are UK streetwear vibe (Hoodies, Cargos, Puffer Jackets, Graphic Tees, Sneakers).",
+    "BRANDING: Use big, bold, oversized text for category names and brand sections. Don't be afraid to overlap text with images.",
+    "ICONS: lucide-react is already installed. Use it for all UI icons. Keep stroke width crisp (1.5 or 2)."
+  ]
+}
