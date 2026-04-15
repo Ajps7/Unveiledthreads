@@ -343,16 +343,24 @@ async def get_my_application(request: Request):
         {"user_id": user["id"]},
         {"_id": 0}
     )
-    if not application:
+    
+    # Also check if user has a brand profile directly (e.g. seeded brands)
+    brand_profile = await db.brands.find_one({"user_id": user["id"]})
+    if brand_profile:
+        brand_profile["id"] = str(brand_profile["_id"])
+        del brand_profile["_id"]
+    
+    if not application and not brand_profile:
         return None
     
-    # Get brand profile if approved
-    brand_profile = None
-    if application["status"] == "approved":
-        brand_profile = await db.brands.find_one(
-            {"user_id": user["id"]},
-            {"_id": 0}
-        )
+    # If there's a brand profile but no application, synthesize one
+    if not application and brand_profile:
+        application = {
+            "user_id": user["id"],
+            "brand_name": brand_profile["brand_name"],
+            "description": brand_profile["description"],
+            "status": "approved"
+        }
     
     return {
         "application": application,
