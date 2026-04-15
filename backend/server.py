@@ -595,7 +595,10 @@ async def create_product(product: ProductCreate, request: Request):
     }
     result = await db.products.insert_one(product_doc)
     
+    # Remove MongoDB's _id before returning
+    product_doc.pop("_id", None)
     product_doc["id"] = str(result.inserted_id)
+    product_doc["created_at"] = product_doc["created_at"].isoformat()
     return product_doc
 
 @api_router.get("/products")
