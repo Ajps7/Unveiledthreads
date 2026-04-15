@@ -46,7 +46,7 @@ const CATEGORIES = [
 ];
 
 export default function BrandDashboard() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [brandData, setBrandData] = useState(null);
   const [products, setProducts] = useState([]);
@@ -65,6 +65,7 @@ export default function BrandDashboard() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) {
       navigate('/login');
       return;
@@ -74,7 +75,7 @@ export default function BrandDashboard() {
       return;
     }
     fetchBrandData();
-  }, [user, navigate]);
+  }, [user, authLoading, navigate]);
 
   const fetchBrandData = async () => {
     try {
@@ -152,7 +153,7 @@ export default function BrandDashboard() {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-[#050505]">
         <Header />

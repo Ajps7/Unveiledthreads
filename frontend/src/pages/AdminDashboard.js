@@ -28,7 +28,7 @@ import {
 const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function AdminDashboard() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [applications, setApplications] = useState([]);
@@ -38,6 +38,7 @@ export default function AdminDashboard() {
   const [processing, setProcessing] = useState(null);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) {
       navigate('/login');
       return;
@@ -47,13 +48,13 @@ export default function AdminDashboard() {
       return;
     }
     fetchData();
-  }, [user, navigate]);
+  }, [user, authLoading, navigate]);
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    if (!authLoading && user?.role === 'admin') {
       fetchApplications();
     }
-  }, [statusFilter, user]);
+  }, [statusFilter, user, authLoading]);
 
   const fetchData = async () => {
     try {
@@ -120,7 +121,7 @@ export default function AdminDashboard() {
     }
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-[#050505]">
         <Header />
