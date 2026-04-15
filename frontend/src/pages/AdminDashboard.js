@@ -1,0 +1,323 @@
+import { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
+import { Button } from '../components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import Header from '../components/Header';
+import { 
+  Shield, 
+  Users, 
+  Package, 
+  ShoppingBag,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Zap,
+  Crown,
+  Loader2,
+  ExternalLink
+} from 'lucide-react';
+
+const API = process.env.REACT_APP_BACKEND_URL;
+
+export default function AdminDashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [stats, setStats] = useState(null);
+  const [applications, setApplications] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [processing, setProcessing] = useState(null);
+
+  useEffect(() => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    if (user.role !== 'admin') {
+      navigate('/');
+      return;
+    }
+    fetchData();
+  }, [user, navigate]);
+
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      fetchApplications();
+    }
+  }, [statusFilter, user]);
+
+  const fetchData = async () => {
+    try {
+      const [statsRes, brandsRes] = await Promise.all([
+        axios.get(`${API}/api/admin/stats`, { withCredentials: true }),
+        axios.get(`${API}/api/brands`)
+      ]);
+      setStats(statsRes.data);
+      setBrands(brandsRes.data);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchApplications = async () => {
+    try {
+      const response = await axios.get(`${API}/api/admin/applications?status=${statusFilter}`, { withCredentials: true });
+      setApplications(response.data);
+    } catch (error) {
+      console.error('Error fetching applications:', error);
+    }
+  };
+
+  const handleApprove = async (applicationId) => {
+    setProcessing(applicationId);
+    try {
+      await axios.post(`${API}/api/admin/applications/${applicationId}/approve`, {}, { withCredentials: true });
+      fetchApplications();
+      fetchData();
+    } catch (error) {
+      console.error('Error approving application:', error);
+      alert('Failed to approve application');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleReject = async (applicationId) => {
+    if (!window.confirm('Are you sure you want to reject this application?')) return;
+    
+    setProcessing(applicationId);
+    try {
+      await axios.post(`${API}/api/admin/applications/${applicationId}/reject`, {}, { withCredentials: true });
+      fetchApplications();
+      fetchData();
+    } catch (error) {
+      console.error('Error rejecting application:', error);
+      alert('Failed to reject application');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleSetBrandOfWeek = async (brandId) => {
+    try {
+      await axios.post(`${API}/api/admin/brands/${brandId}/set-brand-of-week`, {}, { withCredentials: true });
+      fetchData();
+      alert('Brand of the week updated!');
+    } catch (error) {
+      console.error('Error setting brand of week:', error);
+      alert('Failed to set brand of the week');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#050505]">
+        <Header />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="w-8 h-8 text-[#39FF14] animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#050505]">
+      <Header />
+
+      <div className="max-w-7xl mx-auto px-6 md:px-12 py-8">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <Shield className="w-8 h-8 text-[#39FF14]" />
+          <h1 
+            className="text-2xl md:text-3xl font-black tracking-tighter uppercase text-white"
+            style={{ fontFamily: 'Clash Display, sans-serif' }}
+            data-testid="admin-dashboard-title"
+          >
+            Admin Panel
+          </h1>
+        </div>
+
+        {/* Stats */}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-12">
+            <div className="border border-white/10 p-6 bg-[#0A0A0A]">
+              <Users className="w-6 h-6 text-[#9CA3AF] mb-2" />
+              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-1">Total Users</p>
+              <p className="text-2xl font-bold text-white" data-testid="stat-users">{stats.total_users}</p>
+            </div>
+            <div className="border border-white/10 p-6 bg-[#0A0A0A]">
+              <Package className="w-6 h-6 text-[#9CA3AF] mb-2" />
+              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-1">Total Brands</p>
+              <p className="text-2xl font-bold text-white" data-testid="stat-brands">{stats.total_brands}</p>
+            </div>
+            <div className="border border-white/10 p-6 bg-[#0A0A0A]">
+              <ShoppingBag className="w-6 h-6 text-[#9CA3AF] mb-2" />
+              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-1">Products</p>
+              <p className="text-2xl font-bold text-white" data-testid="stat-products">{stats.total_products}</p>
+            </div>
+            <div className="border border-[#39FF14]/30 p-6 bg-[#39FF14]/5">
+              <Clock className="w-6 h-6 text-[#39FF14] mb-2" />
+              <p className="text-xs text-[#39FF14] uppercase tracking-wider mb-1">Pending</p>
+              <p className="text-2xl font-bold text-[#39FF14]" data-testid="stat-pending">{stats.pending_applications}</p>
+            </div>
+            <div className="border border-white/10 p-6 bg-[#0A0A0A]">
+              <Zap className="w-6 h-6 text-[#9CA3AF] mb-2" />
+              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-1">Boosted</p>
+              <p className="text-2xl font-bold text-white" data-testid="stat-boosted">{stats.boosted_brands}</p>
+            </div>
+          </div>
+        )}
+
+        <div className="grid lg:grid-cols-2 gap-8">
+          {/* Applications */}
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 
+                className="text-xl font-bold uppercase text-white"
+                style={{ fontFamily: 'Clash Display, sans-serif' }}
+              >
+                Brand Applications
+              </h2>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[140px] bg-transparent border-white/20 rounded-none text-white" data-testid="status-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+                  <SelectItem value="pending" className="text-white hover:bg-white/10 rounded-none">Pending</SelectItem>
+                  <SelectItem value="approved" className="text-white hover:bg-white/10 rounded-none">Approved</SelectItem>
+                  <SelectItem value="rejected" className="text-white hover:bg-white/10 rounded-none">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-4" data-testid="applications-list">
+              {applications.length > 0 ? (
+                applications.map((app) => (
+                  <div key={app.id} className="border border-white/10 bg-[#0A0A0A] p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h3 className="text-white font-bold">{app.brand_name}</h3>
+                        <p className="text-xs text-[#9CA3AF]">{app.user?.email}</p>
+                      </div>
+                      <span className={`text-xs uppercase tracking-wider px-2 py-1 ${
+                        app.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' :
+                        app.status === 'approved' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
+                        'bg-red-500/10 text-red-400 border border-red-500/30'
+                      }`}>
+                        {app.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-[#9CA3AF] mb-3 line-clamp-2">{app.description}</p>
+                    <div className="flex flex-wrap gap-2 mb-3 text-xs text-[#C0C0C0]">
+                      <span>{app.location}</span>
+                      <span>•</span>
+                      <span className="capitalize">{app.category}</span>
+                      {app.instagram_handle && (
+                        <>
+                          <span>•</span>
+                          <span>{app.instagram_handle}</span>
+                        </>
+                      )}
+                    </div>
+                    {app.status === 'pending' && (
+                      <div className="flex gap-2">
+                        <Button 
+                          className="btn-primary flex-1 text-sm py-2"
+                          onClick={() => handleApprove(app.id)}
+                          disabled={processing === app.id}
+                          data-testid={`approve-${app.id}`}
+                        >
+                          {processing === app.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
+                          Approve
+                        </Button>
+                        <Button 
+                          className="btn-secondary flex-1 text-sm py-2 text-red-400 hover:text-red-300"
+                          onClick={() => handleReject(app.id)}
+                          disabled={processing === app.id}
+                          data-testid={`reject-${app.id}`}
+                        >
+                          <XCircle className="w-4 h-4 mr-1" />
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="border border-white/10 bg-[#0A0A0A] p-8 text-center">
+                  <p className="text-[#9CA3AF]">No {statusFilter} applications</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Brands Management */}
+          <div>
+            <h2 
+              className="text-xl font-bold uppercase text-white mb-6"
+              style={{ fontFamily: 'Clash Display, sans-serif' }}
+            >
+              Set Brand of the Week
+            </h2>
+
+            <div className="space-y-3" data-testid="brands-list">
+              {brands.map((brand) => (
+                <div key={brand.id} className="border border-white/10 bg-[#0A0A0A] p-4 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full overflow-hidden bg-[#0F0F0F] flex-shrink-0">
+                    {brand.logo_url ? (
+                      <img src={brand.logo_url} alt={brand.brand_name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#39FF14] font-bold">
+                        {brand.brand_name.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-white font-medium truncate">{brand.brand_name}</h3>
+                      {brand.is_brand_of_week && (
+                        <Crown className="w-4 h-4 text-[#39FF14]" />
+                      )}
+                      {brand.is_boosted && (
+                        <Zap className="w-4 h-4 text-[#39FF14]" />
+                      )}
+                    </div>
+                    <p className="text-xs text-[#9CA3AF]">{brand.location}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Link to={`/brands/${brand.id}`}>
+                      <Button variant="ghost" size="sm" className="text-[#9CA3AF] hover:text-white p-2">
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </Link>
+                    {!brand.is_brand_of_week && (
+                      <Button 
+                        className="btn-boost text-xs py-1 px-3"
+                        onClick={() => handleSetBrandOfWeek(brand.id)}
+                        data-testid={`set-bow-${brand.id}`}
+                      >
+                        <Crown className="w-3 h-3 mr-1" />
+                        Set BOW
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
