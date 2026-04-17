@@ -106,6 +106,7 @@ class ProductCreate(BaseModel):
     sizes: List[str]
     images: List[str]
     stock: int = 0
+    shipping_cost: float = 3.99
 
 class ProductResponse(BaseModel):
     id: str
@@ -165,6 +166,23 @@ class OrderResponse(BaseModel):
     brand_payout: float
     status: str
     created_at: datetime
+
+class ReviewCreate(BaseModel):
+    order_id: str
+    product_rating: int = Field(..., ge=1, le=5)
+    brand_rating: int = Field(..., ge=1, le=5)
+    comment: Optional[str] = None
+
+class ShipOrderRequest(BaseModel):
+    tracking_number: str
+    courier: str
+
+class UpdateShippingStatus(BaseModel):
+    status: str  # shipped, in_transit, out_for_delivery, delivered
+
+UK_COURIERS = ["Royal Mail", "Evri", "DPD", "Yodel", "UPS", "FedEx", "Hermes", "Other"]
+
+SHIPPING_STATUSES = ["confirmed", "processing", "shipped", "in_transit", "out_for_delivery", "delivered"]
 
 # ============ OBJECT STORAGE HELPERS ============
 
@@ -681,6 +699,7 @@ async def create_product(product: ProductCreate, request: Request):
         "sizes": product.sizes,
         "images": product.images,
         "stock": product.stock,
+        "shipping_cost": product.shipping_cost,
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.products.insert_one(product_doc)
@@ -1124,10 +1143,11 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     if purchase.size not in product["sizes"]:
         raise HTTPException(status_code=400, detail="Selected size is not available")
     
-    # Calculate platform fee
+    # Calculate platform fee and shipping
     product_price = product["price"]
+    shipping_cost = product.get("shipping_cost", 0)
     platform_fee = round(product_price * PLATFORM_FEE_PERCENT / 100, 2)
-    total_price = round(product_price + platform_fee, 2)
+    total_price = round(product_price + platform_fee + shipping_cost, 2)
     
     api_key = os.environ.get("STRIPE_API_KEY")
     host_url = str(request.base_url).rstrip("/")
@@ -1150,7 +1170,8 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             "brand_id": product["brand_id"],
             "size": purchase.size,
             "product_price": str(product_price),
-            "platform_fee": str(platform_fee)
+            "platform_fee": str(platform_fee),
+            "shipping_cost": str(shipping_cost)
         }
     )
     
@@ -1168,10 +1189,16 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "brand_name": product["brand_name"],
         "size": purchase.size,
         "price": product_price,
+        "shipping_cost": shipping_cost,
         "platform_fee": platform_fee,
         "total_charged": total_price,
-        "brand_payout": product_price,
+        "brand_payout": product_price + shipping_cost,
         "status": "initiated",
+        "shipping_status": "confirmed",
+        "tracking_number": None,
+        "courier": None,
+        "shipping_updates": [],
+        "reviewed": False,
         "created_at": datetime.now(timezone.utc)
     }
     await db.orders.insert_one(order_doc)
@@ -1365,6 +1392,230 @@ async def get_unread_count(request: Request):
     
     count = await db.notifications.count_documents(query)
     return {"count": count}
+
+# ============ REVIEWS & RATINGS ============
+
+@api_router.post("/reviews")
+async def create_review(review: ReviewCreate, request: Request):
+    user = await get_current_user(request)
+    
+    order = await db.orders.find_one({"_id": ObjectId(review.order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["buyer_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your order")
+    if order.get("status") != "paid":
+        raise HTTPException(status_code=400, detail="Order must be paid before reviewing")
+    if order.get("reviewed"):
+        raise HTTPException(status_code=400, detail="Already reviewed this order")
+    
+    review_doc = {
+        "order_id": review.order_id,
+        "product_id": order["product_id"],
+        "brand_id": order["brand_id"],
+        "buyer_id": user["id"],
+        "buyer_name": user["name"],
+        "product_name": order["product_name"],
+        "brand_name": order["brand_name"],
+        "product_rating": review.product_rating,
+        "brand_rating": review.brand_rating,
+        "comment": review.comment,
+        "created_at": datetime.now(timezone.utc)
+    }
+    result = await db.reviews.insert_one(review_doc)
+    
+    # Mark order as reviewed
+    await db.orders.update_one({"_id": ObjectId(review.order_id)}, {"$set": {"reviewed": True}})
+    
+    # Notify brand
+    await create_notification(
+        user_id=None,
+        brand_id=order["brand_id"],
+        notification_type="new_review",
+        title="New Review Received",
+        message=f"{user['name']} left a review for {order['product_name']}: {review.product_rating}/5 stars",
+        metadata={"review_id": str(result.inserted_id)}
+    )
+    
+    review_doc.pop("_id", None)
+    review_doc["id"] = str(result.inserted_id)
+    return review_doc
+
+@api_router.get("/reviews/product/{product_id}")
+async def get_product_reviews(product_id: str):
+    reviews = await db.reviews.find({"product_id": product_id}).sort("created_at", -1).to_list(50)
+    result = []
+    for r in reviews:
+        r["id"] = str(r["_id"])
+        del r["_id"]
+        result.append(r)
+    
+    # Calculate average
+    avg_product = sum(r["product_rating"] for r in result) / len(result) if result else 0
+    avg_brand = sum(r["brand_rating"] for r in result) / len(result) if result else 0
+    
+    return {
+        "reviews": result,
+        "count": len(result),
+        "avg_product_rating": round(avg_product, 1),
+        "avg_brand_rating": round(avg_brand, 1)
+    }
+
+@api_router.get("/reviews/brand/{brand_id}")
+async def get_brand_reviews(brand_id: str):
+    reviews = await db.reviews.find({"brand_id": brand_id}).sort("created_at", -1).to_list(50)
+    result = []
+    for r in reviews:
+        r["id"] = str(r["_id"])
+        del r["_id"]
+        result.append(r)
+    
+    avg_product = sum(r["product_rating"] for r in result) / len(result) if result else 0
+    avg_brand = sum(r["brand_rating"] for r in result) / len(result) if result else 0
+    
+    return {
+        "reviews": result,
+        "count": len(result),
+        "avg_product_rating": round(avg_product, 1),
+        "avg_brand_rating": round(avg_brand, 1)
+    }
+
+# ============ SHIPPING / TRACKING ============
+
+@api_router.get("/shipping/couriers")
+async def get_couriers():
+    return UK_COURIERS
+
+@api_router.put("/orders/{order_id}/ship")
+async def ship_order(order_id: str, ship_data: ShipOrderRequest, request: Request):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["brand_id"] != str(brand["_id"]):
+        raise HTTPException(status_code=403, detail="Not your order")
+    if order.get("status") != "paid":
+        raise HTTPException(status_code=400, detail="Order must be paid before shipping")
+    
+    now = datetime.now(timezone.utc)
+    shipping_update = {
+        "status": "shipped",
+        "message": f"Shipped via {ship_data.courier}. Tracking: {ship_data.tracking_number}",
+        "timestamp": now
+    }
+    
+    await db.orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {
+            "$set": {
+                "shipping_status": "shipped",
+                "tracking_number": ship_data.tracking_number,
+                "courier": ship_data.courier,
+                "shipped_at": now
+            },
+            "$push": {"shipping_updates": shipping_update}
+        }
+    )
+    
+    # Notify buyer
+    await create_notification(
+        user_id=order["buyer_id"],
+        brand_id=None,
+        notification_type="order_shipped",
+        title="Your Order Has Been Shipped!",
+        message=f"Your order for {order['product_name']} has been shipped via {ship_data.courier}. Tracking: {ship_data.tracking_number}",
+        metadata={"order_id": order_id, "tracking_number": ship_data.tracking_number, "courier": ship_data.courier}
+    )
+    
+    return {"message": "Order marked as shipped"}
+
+@api_router.put("/orders/{order_id}/shipping-status")
+async def update_shipping_status(order_id: str, status_data: UpdateShippingStatus, request: Request):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["brand_id"] != str(brand["_id"]):
+        raise HTTPException(status_code=403, detail="Not your order")
+    
+    if status_data.status not in SHIPPING_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(SHIPPING_STATUSES)}")
+    
+    now = datetime.now(timezone.utc)
+    status_messages = {
+        "processing": "Order is being prepared",
+        "shipped": "Order has been shipped",
+        "in_transit": "Package is in transit",
+        "out_for_delivery": "Package is out for delivery",
+        "delivered": "Package has been delivered"
+    }
+    
+    shipping_update = {
+        "status": status_data.status,
+        "message": status_messages.get(status_data.status, status_data.status),
+        "timestamp": now
+    }
+    
+    update_fields = {"shipping_status": status_data.status}
+    if status_data.status == "delivered":
+        update_fields["delivered_at"] = now
+    
+    await db.orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": update_fields, "$push": {"shipping_updates": shipping_update}}
+    )
+    
+    # Notify buyer of status change
+    await create_notification(
+        user_id=order["buyer_id"],
+        brand_id=None,
+        notification_type="shipping_update",
+        title=f"Shipping Update: {status_messages.get(status_data.status, status_data.status)}",
+        message=f"Your order for {order['product_name']} — {status_messages.get(status_data.status, '')}",
+        metadata={"order_id": order_id, "status": status_data.status}
+    )
+    
+    return {"message": f"Shipping status updated to {status_data.status}"}
+
+@api_router.get("/orders/{order_id}")
+async def get_order_detail(order_id: str, request: Request):
+    user = await get_current_user(request)
+    
+    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Check access: buyer or brand owner
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    is_buyer = order["buyer_id"] == user["id"]
+    is_brand = brand and order["brand_id"] == str(brand["_id"])
+    is_admin = user.get("role") == "admin"
+    
+    if not (is_buyer or is_brand or is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    order["id"] = str(order["_id"])
+    del order["_id"]
+    
+    # Convert datetime objects in shipping_updates
+    if "shipping_updates" in order:
+        for update in order["shipping_updates"]:
+            if isinstance(update.get("timestamp"), datetime):
+                update["timestamp"] = update["timestamp"].isoformat()
+    
+    for field in ["created_at", "shipped_at", "delivered_at"]:
+        if field in order and isinstance(order[field], datetime):
+            order[field] = order[field].isoformat()
+    
+    return order
 
 # ============ WISHLIST ============
 
@@ -1723,6 +1974,9 @@ async def startup_event():
     await db.wishlist.create_index([("user_id", 1), ("product_id", 1)], unique=True)
     await db.product_views.create_index("product_id")
     await db.product_views.create_index("created_at")
+    await db.reviews.create_index("product_id")
+    await db.reviews.create_index("brand_id")
+    await db.reviews.create_index("order_id", unique=True)
     
     # Init object storage
     try:

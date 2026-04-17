@@ -32,7 +32,8 @@ import {
   ExternalLink,
   Loader2,
   Upload,
-  ShoppingCart
+  ShoppingCart,
+  Truck
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -63,7 +64,8 @@ export default function BrandDashboard() {
     category: '',
     sizes: '',
     images: [],
-    stock: ''
+    stock: '',
+    shipping_cost: '3.99'
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -114,7 +116,8 @@ export default function BrandDashboard() {
         category: productForm.category,
         sizes: productForm.sizes.split(',').map(s => s.trim()).filter(Boolean),
         images: productForm.images,
-        stock: parseInt(productForm.stock) || 0
+        stock: parseInt(productForm.stock) || 0,
+        shipping_cost: parseFloat(productForm.shipping_cost) || 0
       };
 
       await axios.post(`${API}/api/products`, productData, { withCredentials: true });
@@ -126,7 +129,8 @@ export default function BrandDashboard() {
         category: '',
         sizes: '',
         images: [],
-        stock: ''
+        stock: '',
+        shipping_cost: '3.99'
       });
       fetchBrandData();
     } catch (err) {
@@ -304,6 +308,18 @@ export default function BrandDashboard() {
                         data-testid="product-stock-input"
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Shipping Cost (£)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={productForm.shipping_cost}
+                      onChange={(e) => setProductForm({ ...productForm, shipping_cost: e.target.value })}
+                      className="input-brutalist"
+                      placeholder="3.99 (0 for free shipping)"
+                      data-testid="product-shipping-input"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Category *</label>
@@ -494,27 +510,52 @@ export default function BrandDashboard() {
           <div className="mb-12">
             <h3 className="text-lg font-bold text-white uppercase mb-4" style={{ fontFamily: 'Clash Display, sans-serif' }}>
               <ShoppingCart className="w-5 h-5 inline mr-2" />
-              Recent Orders
+              Orders to Fulfil
             </h3>
             <div className="space-y-3" data-testid="brand-orders">
-              {orders.slice(0, 5).map((order) => (
-                <div key={order.id} className="border border-white/10 bg-[#0A0A0A] p-4 flex items-center gap-4">
-                  <div className="flex-1">
-                    <h4 className="text-white font-medium">{order.product_name}</h4>
-                    <p className="text-xs text-[#9CA3AF]">
-                      Size: {order.size} · Buyer: {order.buyer_name} · {new Date(order.created_at).toLocaleDateString()}
-                    </p>
+              {orders.slice(0, 10).map((order) => (
+                <div key={order.id} className="border border-white/10 bg-[#0A0A0A] p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <h4 className="text-white font-medium">{order.product_name}</h4>
+                      <p className="text-xs text-[#9CA3AF]">
+                        Size: {order.size} · Buyer: {order.buyer_name} · {new Date(order.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[#39FF14] font-bold">£{order.brand_payout?.toFixed(2)}</p>
+                      <p className="text-xs text-[#9CA3AF]">your payout</p>
+                    </div>
+                    <span className={`text-xs uppercase tracking-wider px-2 py-1 ${
+                      order.shipping_status === 'delivered' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
+                      order.shipping_status === 'shipped' || order.shipping_status === 'in_transit' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30' :
+                      order.status === 'paid' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' :
+                      'bg-[#9CA3AF]/10 text-[#9CA3AF] border border-[#9CA3AF]/30'
+                    }`}>
+                      {order.shipping_status === 'delivered' ? 'Delivered' :
+                       order.shipping_status === 'shipped' ? 'Shipped' :
+                       order.shipping_status === 'in_transit' ? 'In Transit' :
+                       order.status === 'paid' ? 'Needs Shipping' : order.status}
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[#39FF14] font-bold">£{order.brand_payout?.toFixed(2)}</p>
-                    <p className="text-xs text-[#9CA3AF]">your payout</p>
-                  </div>
-                  <span className={`text-xs uppercase tracking-wider px-2 py-1 ${
-                    order.status === 'paid' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
-                    'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30'
-                  }`}>
-                    {order.status === 'paid' ? 'Confirmed' : order.status}
-                  </span>
+
+                  {/* Ship action for paid orders without tracking */}
+                  {order.status === 'paid' && !order.tracking_number && (
+                    <ShipOrderForm orderId={order.id} onShipped={fetchBrandData} />
+                  )}
+
+                  {/* Tracking info if shipped */}
+                  {order.tracking_number && (
+                    <div className="mt-3 p-3 bg-[#0F0F0F] border border-white/5 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-[#9CA3AF]">Tracking: <span className="text-white font-mono">{order.tracking_number}</span></p>
+                        <p className="text-xs text-[#9CA3AF]">via {order.courier}</p>
+                      </div>
+                      {order.shipping_status !== 'delivered' && (
+                        <ShippingStatusUpdate orderId={order.id} currentStatus={order.shipping_status} onUpdate={fetchBrandData} />
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -631,6 +672,109 @@ export default function BrandDashboard() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ShipOrderForm({ orderId, onShipped }) {
+  const [open, setOpen] = useState(false);
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [courier, setCourier] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleShip = async () => {
+    if (!trackingNumber || !courier) return;
+    setSubmitting(true);
+    try {
+      await axios.put(`${API}/api/orders/${orderId}/ship`, {
+        tracking_number: trackingNumber,
+        courier: courier
+      }, { withCredentials: true });
+      setOpen(false);
+      onShipped();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to ship');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="mt-3">
+        <Button className="btn-primary text-xs py-1 px-3" onClick={() => setOpen(true)} data-testid={`ship-order-${orderId}`}>
+          <Truck className="w-3 h-3 mr-1" /> Mark as Shipped
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 p-3 bg-[#0F0F0F] border border-white/10 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Courier</label>
+          <Select value={courier} onValueChange={setCourier}>
+            <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white text-sm">
+              <SelectValue placeholder="Select courier" />
+            </SelectTrigger>
+            <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+              {['Royal Mail', 'Evri', 'DPD', 'Yodel', 'UPS', 'FedEx', 'Other'].map((c) => (
+                <SelectItem key={c} value={c} className="text-white hover:bg-white/10 rounded-none">{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Tracking Number</label>
+          <Input
+            value={trackingNumber}
+            onChange={(e) => setTrackingNumber(e.target.value)}
+            className="input-brutalist text-sm"
+            placeholder="e.g. RM123456789GB"
+            data-testid={`tracking-input-${orderId}`}
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button className="btn-primary text-xs py-1 px-3" onClick={handleShip} disabled={submitting || !trackingNumber || !courier} data-testid={`confirm-ship-${orderId}`}>
+          {submitting ? 'Shipping...' : 'Confirm Shipment'}
+        </Button>
+        <Button className="btn-secondary text-xs py-1 px-3" onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+function ShippingStatusUpdate({ orderId, currentStatus, onUpdate }) {
+  const statuses = ['in_transit', 'out_for_delivery', 'delivered'];
+  const labels = { in_transit: 'In Transit', out_for_delivery: 'Out for Delivery', delivered: 'Delivered' };
+  const currentIdx = statuses.indexOf(currentStatus);
+  const nextStatuses = statuses.filter((_, i) => i > currentIdx);
+
+  if (nextStatuses.length === 0) return null;
+
+  const handleUpdate = async (status) => {
+    try {
+      await axios.put(`${API}/api/orders/${orderId}/shipping-status`, { status }, { withCredentials: true });
+      onUpdate();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to update');
+    }
+  };
+
+  return (
+    <div className="flex gap-2">
+      {nextStatuses.map((status) => (
+        <Button
+          key={status}
+          className="btn-secondary text-[10px] py-1 px-2"
+          onClick={() => handleUpdate(status)}
+          data-testid={`status-${status}-${orderId}`}
+        >
+          {labels[status]}
+        </Button>
+      ))}
     </div>
   );
 }
