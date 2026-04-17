@@ -1,39 +1,36 @@
 # Unveiled Threads - PRD
 
 ## Problem Statement
-UK streetwear marketplace called "Unveiled Threads" for small/medium independent brands. Full marketplace with auth, brand applications, product management, purchases with platform fee, analytics, wishlists, and email notifications.
+UK streetwear marketplace for small/medium independent brands. Full marketplace with auth, brand applications, product management, purchases with platform fee, reviews & ratings, shipping tracking, analytics, wishlists, and email notifications.
 
 ## Architecture
 - Frontend: React + Tailwind + Shadcn UI (brutalist black/silver/neon green)
 - Backend: FastAPI + MongoDB
-- Payments: Stripe (boosts + product purchases with 10% platform fee)
+- Payments: Stripe (boosts + product purchases with 10% platform fee + shipping)
 - Auth: JWT httpOnly cookies
-- Storage: Emergent Object Storage (product images, brand logos/banners)
-- Emails: Resend (falls back to mock when no API key)
+- Storage: Emergent Object Storage
+- Emails: Resend (mock fallback)
 
 ## All Implemented Features
 - JWT auth (register, login, logout, refresh)
 - Brand application → admin review/approval with email notifications
-- Product CRUD with image upload
+- Product CRUD with image upload + shipping cost per product
 - Brand profiles with logo/banner upload
 - Brand of the Week (admin-set)
 - Boosted Brand promotions (Stripe checkout)
-- Buyer purchase flow with 10% platform fee (Stripe)
+- Buyer purchase flow with 10% platform fee + flat shipping cost (Stripe)
 - Order tracking for buyers and brands
-- Buyer wishlist (heart icon on cards, /wishlist page)
-- Brand analytics dashboard (views, orders, revenue, charts, top products, conversion rate)
+- **Reviews & Ratings**: Separate product rating (1-5) + brand rating (1-5) per order, averages displayed on product pages
+- **Shipping/Delivery Tracking**: Vinted/Depop-style — brand marks shipped with tracking number + courier (Royal Mail, Evri, DPD, etc.), buyer sees status timeline (Confirmed → Shipped → In Transit → Out for Delivery → Delivered)
+- Buyer wishlist (heart icon + /wishlist page)
+- Brand analytics dashboard (views, orders, revenue, charts, top products)
 - Product view tracking
 - Email notifications via Resend (mock fallback)
-- In-app notification bell with unread count
-- Search and filter
-- 8 clothing categories
+- Notification bell with unread count
+- Search and filter, 8 clothing categories
 
 ## Remaining Backlog
-### P1
-- [ ] Reviews and ratings
-- [ ] Shipping/delivery tracking
-
 ### P2
-- [ ] Social sharing
+- [ ] Social sharing / referral system
 - [ ] Buyer messaging to brands
 - [ ] Multiple wishlists
