@@ -2,6 +2,8 @@ import requests
 import sys
 from datetime import datetime
 import json
+import io
+import os
 
 class UKStreetwearAPITester:
     def __init__(self, base_url="https://uk-streetwear-hub.preview.emergentagent.com"):
@@ -271,6 +273,99 @@ class UKStreetwearAPITester:
         else:
             print("❌ Boost packages response invalid")
 
+    def test_image_upload_endpoints(self):
+        """Test image upload endpoints"""
+        print("\n=== TESTING IMAGE UPLOAD ENDPOINTS ===")
+        
+        # Test image upload without auth (should fail)
+        self.run_test(
+            "Image Upload (No Auth)",
+            "POST",
+            "api/upload/image",
+            401
+        )
+        
+        # Test brand logo upload without auth (should fail)
+        self.run_test(
+            "Brand Logo Upload (No Auth)",
+            "POST",
+            "api/brands/upload-logo",
+            401
+        )
+        
+        # Test brand banner upload without auth (should fail)
+        self.run_test(
+            "Brand Banner Upload (No Auth)",
+            "POST",
+            "api/brands/upload-banner",
+            401
+        )
+
+    def test_orders_endpoints(self):
+        """Test order-related endpoints"""
+        print("\n=== TESTING ORDERS ENDPOINTS ===")
+        
+        # Test my orders without auth (should fail)
+        self.run_test(
+            "My Orders (No Auth)",
+            "GET",
+            "api/orders/my-orders",
+            401
+        )
+        
+        # Test brand orders without auth (should fail)
+        self.run_test(
+            "Brand Orders (No Auth)",
+            "GET",
+            "api/orders/brand-orders",
+            401
+        )
+        
+        # Test order checkout without auth (should fail)
+        self.run_test(
+            "Order Checkout (No Auth)",
+            "POST",
+            "api/orders/checkout",
+            401,
+            data={
+                "product_id": "test_id",
+                "size": "M",
+                "origin_url": "https://test.com"
+            }
+        )
+
+    def test_notifications_endpoints(self):
+        """Test notification endpoints"""
+        print("\n=== TESTING NOTIFICATIONS ENDPOINTS ===")
+        
+        # Test notifications without auth (should fail)
+        self.run_test(
+            "Get Notifications (No Auth)",
+            "GET",
+            "api/notifications",
+            401
+        )
+        
+        # Test unread count without auth (should fail)
+        self.run_test(
+            "Get Unread Count (No Auth)",
+            "GET",
+            "api/notifications/unread-count",
+            401
+        )
+
+    def test_file_serving(self):
+        """Test file serving endpoint"""
+        print("\n=== TESTING FILE SERVING ===")
+        
+        # Test file serving with non-existent file (should return 404)
+        self.run_test(
+            "File Serving (Non-existent)",
+            "GET",
+            "api/files/non-existent-file.jpg",
+            404
+        )
+
     def run_all_tests(self):
         """Run all API tests"""
         print("🚀 Starting UK Streetwear Hub API Tests")
@@ -281,6 +376,12 @@ class UKStreetwearAPITester:
         self.test_brands_endpoints()
         self.test_products_endpoints()
         self.test_boost_endpoints()
+        
+        # Test new features
+        self.test_image_upload_endpoints()
+        self.test_orders_endpoints()
+        self.test_notifications_endpoints()
+        self.test_file_serving()
         
         # Test auth endpoints
         self.test_auth_endpoints()

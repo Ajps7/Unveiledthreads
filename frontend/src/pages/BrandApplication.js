@@ -257,7 +257,7 @@ export default function BrandApplication() {
           {/* Website */}
           <div>
             <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
-              Website
+              Website <span className="text-[#9CA3AF] normal-case tracking-normal">(optional)</span>
             </label>
             <Input
               type="url"
@@ -267,6 +267,7 @@ export default function BrandApplication() {
               placeholder="https://yourbrand.com"
               data-testid="website-input"
             />
+            <p className="text-xs text-[#9CA3AF] mt-1">Don't have a website yet? No worries — your Unveiled Threads store will be your home.</p>
           </div>
 
           <div className="pt-4">

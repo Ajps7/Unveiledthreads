@@ -20,6 +20,7 @@ import {
   DialogTrigger,
 } from '../components/ui/dialog';
 import Header from '../components/Header';
+import ImageUpload from '../components/ImageUpload';
 import { 
   LayoutDashboard, 
   Package, 
@@ -29,7 +30,9 @@ import {
   Edit,
   Trash2,
   ExternalLink,
-  Loader2
+  Loader2,
+  Upload,
+  ShoppingCart
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -50,6 +53,7 @@ export default function BrandDashboard() {
   const navigate = useNavigate();
   const [brandData, setBrandData] = useState(null);
   const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [productForm, setProductForm] = useState({
@@ -58,7 +62,7 @@ export default function BrandDashboard() {
     price: '',
     category: '',
     sizes: '',
-    images: '',
+    images: [],
     stock: ''
   });
   const [submitting, setSubmitting] = useState(false);
@@ -82,9 +86,13 @@ export default function BrandDashboard() {
       const response = await axios.get(`${API}/api/brands/my-application`, { withCredentials: true });
       if (response.data && response.data.brand_profile) {
         setBrandData(response.data.brand_profile);
-        // Fetch products
-        const prodRes = await axios.get(`${API}/api/products?brand_id=${response.data.brand_profile.id}`);
+        // Fetch products and orders
+        const [prodRes, ordersRes] = await Promise.all([
+          axios.get(`${API}/api/products?brand_id=${response.data.brand_profile.id}`),
+          axios.get(`${API}/api/orders/brand-orders`, { withCredentials: true }).catch(() => ({ data: [] }))
+        ]);
         setProducts(prodRes.data);
+        setOrders(ordersRes.data);
       }
     } catch (error) {
       console.error('Error fetching brand data:', error);
@@ -105,7 +113,7 @@ export default function BrandDashboard() {
         price: parseFloat(productForm.price),
         category: productForm.category,
         sizes: productForm.sizes.split(',').map(s => s.trim()).filter(Boolean),
-        images: productForm.images.split(',').map(s => s.trim()).filter(Boolean),
+        images: productForm.images,
         stock: parseInt(productForm.stock) || 0
       };
 
@@ -117,7 +125,7 @@ export default function BrandDashboard() {
         price: '',
         category: '',
         sizes: '',
-        images: '',
+        images: [],
         stock: ''
       });
       fetchBrandData();
@@ -320,14 +328,28 @@ export default function BrandDashboard() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Image URLs (comma separated)</label>
-                    <Input
-                      value={productForm.images}
-                      onChange={(e) => setProductForm({ ...productForm, images: e.target.value })}
-                      className="input-brutalist"
-                      placeholder="https://example.com/image.jpg"
-                      data-testid="product-images-input"
+                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Product Images</label>
+                    <ImageUpload
+                      multiple
+                      label="Upload Product Photos"
+                      onUpload={(urls) => setProductForm({ ...productForm, images: [...productForm.images, ...urls] })}
                     />
+                    {productForm.images.length > 0 && (
+                      <div className="grid grid-cols-4 gap-2 mt-2">
+                        {productForm.images.map((img, i) => (
+                          <div key={i} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
+                            <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt={`Product ${i+1}`} className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setProductForm({ ...productForm, images: productForm.images.filter((_, idx) => idx !== i) })}
+                              className="absolute top-1 right-1 bg-black/70 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <Button type="submit" className="btn-primary w-full" disabled={submitting} data-testid="submit-product-button">
                     {submitting ? 'Adding...' : 'Add Product'}
@@ -359,6 +381,139 @@ export default function BrandDashboard() {
             <p className="text-lg font-bold text-white">{brandData.location}</p>
           </div>
         </div>
+
+        {/* Brand Profile Images */}
+        <div className="mb-12 border border-white/10 bg-[#0A0A0A] p-6">
+          <h3 className="text-lg font-bold text-white uppercase mb-4" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+            <Upload className="w-5 h-5 inline mr-2" />
+            Brand Profile Images
+          </h3>
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Logo Upload */}
+            <div>
+              <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-2">Brand Logo</label>
+              {brandData.logo_url && (
+                <div className="w-24 h-24 rounded-full overflow-hidden border border-white/10 mb-3">
+                  <img
+                    src={brandData.logo_url.startsWith('/api/') ? `${API}${brandData.logo_url}` : brandData.logo_url}
+                    alt="Logo"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+              <ImageUpload
+                label="Upload Logo"
+                onUpload={async (url) => {
+                  // Upload via the brand logo endpoint
+                  try {
+                    const input = document.querySelector('[data-testid="logo-upload-input"]');
+                    if (!input || !input.files[0]) return;
+                    const formData = new FormData();
+                    formData.append('file', input.files[0]);
+                    await axios.post(`${API}/api/brands/upload-logo`, formData, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+                    fetchBrandData();
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+              />
+              <input
+                type="file"
+                data-testid="logo-upload-input"
+                className="hidden"
+                accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  try {
+                    await axios.post(`${API}/api/brands/upload-logo`, formData, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+                    fetchBrandData();
+                  } catch (err) { console.error(err); }
+                }}
+              />
+              <Button
+                type="button"
+                className="btn-secondary w-full mt-2 text-sm"
+                onClick={() => document.querySelector('[data-testid="logo-upload-input"]').click()}
+                data-testid="upload-logo-button"
+              >
+                <Upload className="w-4 h-4 mr-2" /> Upload Logo
+              </Button>
+            </div>
+
+            {/* Banner Upload */}
+            <div>
+              <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-2">Brand Banner</label>
+              {brandData.banner_url && (
+                <div className="aspect-[3/1] overflow-hidden border border-white/10 mb-3">
+                  <img
+                    src={brandData.banner_url.startsWith('/api/') ? `${API}${brandData.banner_url}` : brandData.banner_url}
+                    alt="Banner"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+              <input
+                type="file"
+                data-testid="banner-upload-input"
+                className="hidden"
+                accept="image/*"
+                onChange={async (e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  try {
+                    await axios.post(`${API}/api/brands/upload-banner`, formData, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+                    fetchBrandData();
+                  } catch (err) { console.error(err); }
+                }}
+              />
+              <Button
+                type="button"
+                className="btn-secondary w-full text-sm"
+                onClick={() => document.querySelector('[data-testid="banner-upload-input"]').click()}
+                data-testid="upload-banner-button"
+              >
+                <Upload className="w-4 h-4 mr-2" /> Upload Banner
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Orders */}
+        {orders.length > 0 && (
+          <div className="mb-12">
+            <h3 className="text-lg font-bold text-white uppercase mb-4" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              <ShoppingCart className="w-5 h-5 inline mr-2" />
+              Recent Orders
+            </h3>
+            <div className="space-y-3" data-testid="brand-orders">
+              {orders.slice(0, 5).map((order) => (
+                <div key={order.id} className="border border-white/10 bg-[#0A0A0A] p-4 flex items-center gap-4">
+                  <div className="flex-1">
+                    <h4 className="text-white font-medium">{order.product_name}</h4>
+                    <p className="text-xs text-[#9CA3AF]">
+                      Size: {order.size} · Buyer: {order.buyer_name} · {new Date(order.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[#39FF14] font-bold">£{order.brand_payout?.toFixed(2)}</p>
+                    <p className="text-xs text-[#9CA3AF]">your payout</p>
+                  </div>
+                  <span className={`text-xs uppercase tracking-wider px-2 py-1 ${
+                    order.status === 'paid' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
+                    'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30'
+                  }`}>
+                    {order.status === 'paid' ? 'Confirmed' : order.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Boost Section */}
         {!brandData.is_boosted && (

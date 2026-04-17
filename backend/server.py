@@ -1,11 +1,12 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import requests as http_requests
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
@@ -25,6 +26,15 @@ db = client[os.environ['DB_NAME']]
 
 # JWT Config
 JWT_ALGORITHM = "HS256"
+
+# Object Storage Config
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "unveiled-threads"
+storage_key = None
+
+# Platform fee config
+PLATFORM_FEE_PERCENT = float(os.environ.get("PLATFORM_FEE_PERCENT", "10"))
 
 def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
@@ -128,6 +138,58 @@ class BoostPackage(BaseModel):
 class CheckoutRequest(BaseModel):
     package_id: str
     origin_url: str
+
+class ProductPurchaseRequest(BaseModel):
+    product_id: str
+    size: str
+    origin_url: str
+
+class OrderResponse(BaseModel):
+    id: str
+    product_id: str
+    product_name: str
+    brand_name: str
+    buyer_id: str
+    buyer_email: str
+    size: str
+    price: float
+    platform_fee: float
+    brand_payout: float
+    status: str
+    created_at: datetime
+
+# ============ OBJECT STORAGE HELPERS ============
+
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    resp = http_requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    return storage_key
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = http_requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str):
+    key = init_storage()
+    resp = http_requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 
 # ============ HELPER FUNCTIONS ============
 
@@ -429,6 +491,16 @@ async def approve_application(application_id: str, request: Request):
     }
     result = await db.brands.insert_one(brand_doc)
     
+    # Send approval notification
+    await create_notification(
+        user_id=application["user_id"],
+        brand_id=str(result.inserted_id),
+        notification_type="application_approved",
+        title="Application Approved!",
+        message=f"Congratulations! Your brand '{application['brand_name']}' has been approved on Unveiled Threads. You can now start adding products to your store.",
+        metadata={"brand_id": str(result.inserted_id)}
+    )
+    
     return {"message": "Application approved", "brand_id": str(result.inserted_id)}
 
 @api_router.post("/admin/applications/{application_id}/reject")
@@ -445,6 +517,16 @@ async def reject_application(application_id: str, request: Request):
     await db.brand_applications.update_one(
         {"_id": ObjectId(application_id)},
         {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc)}}
+    )
+    
+    # Send rejection notification
+    await create_notification(
+        user_id=application["user_id"],
+        brand_id=None,
+        notification_type="application_rejected",
+        title="Application Update",
+        message=f"Unfortunately, your brand application for '{application['brand_name']}' was not approved at this time. You're welcome to reapply with updated details.",
+        metadata={}
     )
     
     return {"message": "Application rejected"}
@@ -867,14 +949,375 @@ async def get_admin_stats(request: Request):
     total_products = await db.products.count_documents({})
     pending_applications = await db.brand_applications.count_documents({"status": "pending"})
     boosted_brands = await db.brands.count_documents({"is_boosted": True})
+    total_orders = await db.orders.count_documents({})
+    total_revenue = 0
+    pipeline = [{"$match": {"status": "paid"}}, {"$group": {"_id": None, "total": {"$sum": "$platform_fee"}}}]
+    async for doc in db.orders.aggregate(pipeline):
+        total_revenue = doc["total"]
     
     return {
         "total_users": total_users,
         "total_brands": total_brands,
         "total_products": total_products,
         "pending_applications": pending_applications,
-        "boosted_brands": boosted_brands
+        "boosted_brands": boosted_brands,
+        "total_orders": total_orders,
+        "total_revenue": round(total_revenue, 2)
     }
+
+# ============ IMAGE UPLOAD ============
+
+@api_router.post("/upload/image")
+async def upload_image(request: Request, file: UploadFile = File(...)):
+    user = await get_current_user(request)
+    
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP and GIF images are allowed. Please upload a clear, well-lit photo.")
+    
+    data = await file.read()
+    if len(data) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 5MB. Try compressing your photo.")
+    
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{user['id']}/{file_id}.{ext}"
+    
+    try:
+        result = put_object(path, data, file.content_type)
+    except Exception as e:
+        logger.error(f"Storage upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload image. Please try again.")
+    
+    # Store reference in DB
+    file_doc = {
+        "file_id": file_id,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": file.content_type,
+        "size": result.get("size", len(data)),
+        "user_id": user["id"],
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.files.insert_one(file_doc)
+    
+    return {
+        "file_id": file_id,
+        "url": f"/api/files/{result['path']}",
+        "original_filename": file.filename,
+        "size": result.get("size", len(data))
+    }
+
+@api_router.get("/files/{path:path}")
+async def serve_file(path: str):
+    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    try:
+        data, content_type = get_object(path)
+    except Exception as e:
+        logger.error(f"Storage download failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve file")
+    
+    return Response(
+        content=data,
+        media_type=record.get("content_type", content_type),
+        headers={"Cache-Control": "public, max-age=86400"}
+    )
+
+# ============ BRAND PROFILE IMAGE UPLOAD ============
+
+@api_router.post("/brands/upload-logo")
+async def upload_brand_logo(request: Request, file: UploadFile = File(...)):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP and GIF images are allowed.")
+    
+    data = await file.read()
+    if len(data) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 5MB.")
+    
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/brands/{str(brand['_id'])}/logo-{file_id}.{ext}"
+    
+    result = put_object(path, data, file.content_type)
+    
+    await db.files.insert_one({
+        "file_id": file_id,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": file.content_type,
+        "size": result.get("size", len(data)),
+        "user_id": user["id"],
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    logo_url = f"/api/files/{result['path']}"
+    await db.brands.update_one({"_id": brand["_id"]}, {"$set": {"logo_url": logo_url}})
+    
+    return {"url": logo_url}
+
+@api_router.post("/brands/upload-banner")
+async def upload_brand_banner(request: Request, file: UploadFile = File(...)):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WebP and GIF images are allowed.")
+    
+    data = await file.read()
+    if len(data) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 5MB.")
+    
+    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/brands/{str(brand['_id'])}/banner-{file_id}.{ext}"
+    
+    result = put_object(path, data, file.content_type)
+    
+    await db.files.insert_one({
+        "file_id": file_id,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": file.content_type,
+        "size": result.get("size", len(data)),
+        "user_id": user["id"],
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    banner_url = f"/api/files/{result['path']}"
+    await db.brands.update_one({"_id": brand["_id"]}, {"$set": {"banner_url": banner_url}})
+    
+    return {"url": banner_url}
+
+# ============ PRODUCT PURCHASE / ORDERS ============
+
+@api_router.post("/orders/checkout")
+async def create_order_checkout(purchase: ProductPurchaseRequest, request: Request):
+    user = await get_current_user(request)
+    
+    product = await db.products.find_one({"_id": ObjectId(purchase.product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    if product["stock"] <= 0:
+        raise HTTPException(status_code=400, detail="Product is out of stock")
+    
+    if purchase.size not in product["sizes"]:
+        raise HTTPException(status_code=400, detail="Selected size is not available")
+    
+    # Calculate platform fee
+    product_price = product["price"]
+    platform_fee = round(product_price * PLATFORM_FEE_PERCENT / 100, 2)
+    total_price = round(product_price + platform_fee, 2)
+    
+    api_key = os.environ.get("STRIPE_API_KEY")
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    
+    success_url = f"{purchase.origin_url}/order/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{purchase.origin_url}/products/{purchase.product_id}"
+    
+    checkout_request = CheckoutSessionRequest(
+        amount=total_price,
+        currency="gbp",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={
+            "type": "product_purchase",
+            "user_id": user["id"],
+            "product_id": str(product["_id"]),
+            "brand_id": product["brand_id"],
+            "size": purchase.size,
+            "product_price": str(product_price),
+            "platform_fee": str(platform_fee)
+        }
+    )
+    
+    session = await stripe_checkout.create_checkout_session(checkout_request)
+    
+    # Create order record
+    order_doc = {
+        "session_id": session.session_id,
+        "buyer_id": user["id"],
+        "buyer_email": user["email"],
+        "buyer_name": user["name"],
+        "product_id": str(product["_id"]),
+        "product_name": product["name"],
+        "brand_id": product["brand_id"],
+        "brand_name": product["brand_name"],
+        "size": purchase.size,
+        "price": product_price,
+        "platform_fee": platform_fee,
+        "total_charged": total_price,
+        "brand_payout": product_price,
+        "status": "initiated",
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.orders.insert_one(order_doc)
+    
+    # Also add to payment_transactions
+    await db.payment_transactions.insert_one({
+        "session_id": session.session_id,
+        "user_id": user["id"],
+        "type": "product_purchase",
+        "amount": total_price,
+        "currency": "gbp",
+        "payment_status": "initiated",
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"url": session.url, "session_id": session.session_id}
+
+@api_router.get("/orders/status/{session_id}")
+async def get_order_status(session_id: str, request: Request):
+    user = await get_current_user(request)
+    
+    order = await db.orders.find_one({"session_id": session_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order["buyer_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if order.get("status") == "paid":
+        return {"status": "complete", "payment_status": "paid", "already_processed": True}
+    
+    api_key = os.environ.get("STRIPE_API_KEY")
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    status = await stripe_checkout.get_checkout_status(session_id)
+    
+    await db.orders.update_one(
+        {"session_id": session_id},
+        {"$set": {"status": status.payment_status}}
+    )
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {"$set": {"payment_status": status.payment_status, "status": status.status}}
+    )
+    
+    # If paid and not already processed
+    if status.payment_status == "paid" and not order.get("stock_deducted"):
+        # Deduct stock
+        await db.products.update_one(
+            {"_id": ObjectId(order["product_id"])},
+            {"$inc": {"stock": -1}}
+        )
+        await db.orders.update_one(
+            {"session_id": session_id},
+            {"$set": {"stock_deducted": True}}
+        )
+        
+        # Send notification to brand
+        await create_notification(
+            user_id=None,
+            brand_id=order["brand_id"],
+            notification_type="order_received",
+            title="New Order Received!",
+            message=f"New order for {order['product_name']} (Size: {order['size']}) from {order['buyer_name']}. Payout: £{order['brand_payout']:.2f}",
+            metadata={"order_session_id": session_id}
+        )
+    
+    return {"status": status.status, "payment_status": status.payment_status}
+
+@api_router.get("/orders/my-orders")
+async def get_my_orders(request: Request):
+    user = await get_current_user(request)
+    
+    orders = await db.orders.find({"buyer_id": user["id"]}).sort("created_at", -1).to_list(50)
+    result = []
+    for order in orders:
+        order["id"] = str(order["_id"])
+        del order["_id"]
+        result.append(order)
+    return result
+
+@api_router.get("/orders/brand-orders")
+async def get_brand_orders(request: Request):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    orders = await db.orders.find({"brand_id": str(brand["_id"])}).sort("created_at", -1).to_list(50)
+    result = []
+    for order in orders:
+        order["id"] = str(order["_id"])
+        del order["_id"]
+        result.append(order)
+    return result
+
+# ============ NOTIFICATIONS ============
+
+async def create_notification(user_id: Optional[str], brand_id: Optional[str], notification_type: str, title: str, message: str, metadata: Optional[dict] = None):
+    """Create a notification (mock email — stored in DB)"""
+    notif_doc = {
+        "user_id": user_id,
+        "brand_id": brand_id,
+        "type": notification_type,
+        "title": title,
+        "message": message,
+        "metadata": metadata or {},
+        "read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.notifications.insert_one(notif_doc)
+    logger.info(f"[MOCK EMAIL] To: user={user_id} brand={brand_id} | {title} | {message}")
+
+@api_router.get("/notifications")
+async def get_notifications(request: Request):
+    user = await get_current_user(request)
+    
+    query = {"$or": [{"user_id": user["id"]}]}
+    
+    # If user is a brand, also get brand notifications
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if brand:
+        query["$or"].append({"brand_id": str(brand["_id"])})
+    
+    notifications = await db.notifications.find(query).sort("created_at", -1).to_list(50)
+    result = []
+    for notif in notifications:
+        notif["id"] = str(notif["_id"])
+        del notif["_id"]
+        result.append(notif)
+    return result
+
+@api_router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, request: Request):
+    await get_current_user(request)
+    await db.notifications.update_one(
+        {"_id": ObjectId(notification_id)},
+        {"$set": {"read": True}}
+    )
+    return {"message": "Marked as read"}
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(request: Request):
+    user = await get_current_user(request)
+    
+    query = {"read": False, "$or": [{"user_id": user["id"]}]}
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if brand:
+        query["$or"].append({"brand_id": str(brand["_id"])})
+    
+    count = await db.notifications.count_documents(query)
+    return {"count": count}
 
 # ============ SEED DATA ============
 
@@ -1056,6 +1499,20 @@ async def startup_event():
     await db.products.create_index("category")
     await db.brand_applications.create_index("user_id")
     await db.payment_transactions.create_index("session_id")
+    await db.orders.create_index("buyer_id")
+    await db.orders.create_index("brand_id")
+    await db.orders.create_index("session_id")
+    await db.notifications.create_index("user_id")
+    await db.notifications.create_index("brand_id")
+    await db.files.create_index("storage_path")
+    await db.files.create_index("file_id")
+    
+    # Init object storage
+    try:
+        init_storage()
+        logger.info("Object storage initialized")
+    except Exception as e:
+        logger.warning(f"Object storage init failed (will retry on first use): {e}")
     
     # Seed data
     await seed_admin()

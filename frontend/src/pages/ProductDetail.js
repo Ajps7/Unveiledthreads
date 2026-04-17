@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, MapPin, Globe, Instagram, ShoppingBag } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { ArrowLeft, MapPin, Globe, Instagram, ShoppingBag, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import Header from '../components/Header';
-import ProductCard from '../components/ProductCard';
 
 const API = process.env.REACT_APP_BACKEND_URL;
+const PLATFORM_FEE_PERCENT = 10;
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [product, setProduct] = useState(null);
   const [selectedSize, setSelectedSize] = useState('');
   const [loading, setLoading] = useState(true);
+  const [purchasing, setPurchasing] = useState(false);
 
   useEffect(() => {
     fetchProduct();
@@ -29,6 +32,33 @@ export default function ProductDetail() {
       console.error('Error fetching product:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePurchase = async () => {
+    if (!user) {
+      window.location.href = '/login';
+      return;
+    }
+    if (!selectedSize) return;
+
+    setPurchasing(true);
+    try {
+      const response = await axios.post(
+        `${API}/api/orders/checkout`,
+        {
+          product_id: id,
+          size: selectedSize,
+          origin_url: window.location.origin
+        },
+        { withCredentials: true }
+      );
+      window.location.href = response.data.url;
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Failed to create checkout';
+      alert(msg);
+    } finally {
+      setPurchasing(false);
     }
   };
 
@@ -57,12 +87,14 @@ export default function ProductDetail() {
     );
   }
 
+  const platformFee = (product.price * PLATFORM_FEE_PERCENT / 100);
+  const totalPrice = product.price + platformFee;
+
   return (
     <div className="min-h-screen bg-[#050505]">
       <Header />
 
       <div className="max-w-7xl mx-auto px-6 md:px-12 py-8">
-        {/* Breadcrumb */}
         <Link to="/products" className="inline-flex items-center gap-2 text-[#9CA3AF] hover:text-white mb-8 transition-colors">
           <ArrowLeft className="w-4 h-4" />
           Back to products
@@ -74,7 +106,7 @@ export default function ProductDetail() {
             <div className="aspect-[3/4] overflow-hidden border border-white/10 bg-[#0F0F0F]">
               {product.images && product.images.length > 0 ? (
                 <img
-                  src={product.images[0]}
+                  src={product.images[0].startsWith('/api/') ? `${API}${product.images[0]}` : product.images[0]}
                   alt={product.name}
                   className="w-full h-full object-cover"
                   data-testid="product-main-image"
@@ -89,7 +121,7 @@ export default function ProductDetail() {
               <div className="grid grid-cols-4 gap-2">
                 {product.images.slice(1).map((img, i) => (
                   <div key={i} className="aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
-                    <img src={img} alt={`${product.name} ${i + 2}`} className="w-full h-full object-cover" />
+                    <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt={`${product.name} ${i + 2}`} className="w-full h-full object-cover" />
                   </div>
                 ))}
               </div>
@@ -98,10 +130,9 @@ export default function ProductDetail() {
 
           {/* Product Info */}
           <div>
-            {/* Brand Link */}
             {product.brand && (
-              <Link 
-                to={`/brands/${product.brand.id}`} 
+              <Link
+                to={`/brands/${product.brand.id}`}
                 className="inline-flex items-center gap-2 text-[#39FF14] text-sm uppercase tracking-wider hover:underline mb-4"
                 data-testid="product-brand-link"
               >
@@ -109,7 +140,7 @@ export default function ProductDetail() {
               </Link>
             )}
 
-            <h1 
+            <h1
               className="text-3xl md:text-4xl font-black tracking-tighter uppercase mb-4 text-white"
               style={{ fontFamily: 'Clash Display, sans-serif' }}
               data-testid="product-name"
@@ -117,8 +148,11 @@ export default function ProductDetail() {
               {product.name}
             </h1>
 
-            <p className="text-3xl font-bold text-[#C0C0C0] mb-6" data-testid="product-price">
+            <p className="text-3xl font-bold text-[#C0C0C0] mb-2" data-testid="product-price">
               £{product.price.toFixed(2)}
+            </p>
+            <p className="text-xs text-[#9CA3AF] mb-6">
+              + £{platformFee.toFixed(2)} platform fee (total: £{totalPrice.toFixed(2)})
             </p>
 
             <p className="text-[#9CA3AF] mb-8 leading-relaxed" data-testid="product-description">
@@ -159,17 +193,25 @@ export default function ProductDetail() {
               )}
             </p>
 
-            {/* CTA */}
+            {/* Buy Button */}
             <div className="flex gap-4 mb-8">
-              <Button 
-                className="btn-primary flex-1" 
-                disabled={product.stock === 0}
-                data-testid="add-to-cart-button"
+              <Button
+                className="btn-primary flex-1"
+                disabled={product.stock === 0 || !selectedSize || purchasing}
+                onClick={handlePurchase}
+                data-testid="buy-now-button"
               >
-                <ShoppingBag className="w-5 h-5 mr-2" />
-                Contact Brand to Buy
+                {purchasing ? (
+                  <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
+                ) : (
+                  <><ShoppingBag className="w-5 h-5 mr-2" /> BUY NOW — £{totalPrice.toFixed(2)}</>
+                )}
               </Button>
             </div>
+
+            <p className="text-xs text-[#9CA3AF] mb-8">
+              A {PLATFORM_FEE_PERCENT}% platform fee supports Unveiled Threads and helps independent brands grow.
+            </p>
 
             {/* Brand Info Card */}
             {product.brand && (
@@ -178,7 +220,7 @@ export default function ProductDetail() {
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-full overflow-hidden bg-[#1A1A1A] border border-white/10 flex-shrink-0">
                     {product.brand.logo_url ? (
-                      <img src={product.brand.logo_url} alt={product.brand.brand_name} className="w-full h-full object-cover" />
+                      <img src={product.brand.logo_url.startsWith('/api/') ? `${API}${product.brand.logo_url}` : product.brand.logo_url} alt={product.brand.brand_name} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[#39FF14] font-bold">
                         {product.brand.brand_name.charAt(0)}
