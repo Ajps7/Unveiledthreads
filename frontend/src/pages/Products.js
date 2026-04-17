@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import {
@@ -13,17 +13,19 @@ import {
 } from '../components/ui/select';
 import Header from '../components/Header';
 import ProductCard, { ProductCardSkeleton } from '../components/ProductCard';
+import { useAuth } from '../context/AuthContext';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function Products() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [wishlistIds, setWishlistIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all');
-  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     fetchCategories();
@@ -32,6 +34,21 @@ export default function Products() {
   useEffect(() => {
     fetchProducts();
   }, [searchParams]);
+
+  useEffect(() => {
+    if (user) fetchWishlistIds();
+  }, [user]);
+
+  const fetchWishlistIds = async () => {
+    try {
+      const res = await axios.get(`${API}/api/wishlist/ids`, { withCredentials: true });
+      setWishlistIds(res.data);
+    } catch (e) { /* ignore */ }
+  };
+
+  const handleWishlistToggle = (productId, nowWishlisted) => {
+    setWishlistIds(prev => nowWishlisted ? [...prev, productId] : prev.filter(id => id !== productId));
+  };
 
   const fetchCategories = async () => {
     try {
@@ -181,7 +198,13 @@ export default function Products() {
           ) : products.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6" data-testid="products-grid">
               {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  showWishlist={!!user}
+                  isWishlisted={wishlistIds.includes(product.id)}
+                  onWishlistToggle={handleWishlistToggle}
+                />
               ))}
             </div>
           ) : (

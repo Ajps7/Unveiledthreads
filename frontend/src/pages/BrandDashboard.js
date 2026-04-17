@@ -229,6 +229,12 @@ export default function BrandDashboard() {
           </div>
 
           <div className="flex gap-3">
+            <Link to="/brand/analytics">
+              <Button className="btn-secondary" data-testid="view-analytics-button">
+                <TrendingUp className="w-4 h-4 mr-2" />
+                Analytics
+              </Button>
+            </Link>
             <Link to={`/brands/${brandData.id}`}>
               <Button className="btn-secondary" data-testid="view-profile-button">
                 <ExternalLink className="w-4 h-4 mr-2" />

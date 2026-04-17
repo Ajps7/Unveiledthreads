@@ -8,13 +8,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { User, LogOut, ShoppingBag, LayoutDashboard, Shield, Menu, X } from 'lucide-react';
-import { useState } from 'react';
+import { User, LogOut, ShoppingBag, LayoutDashboard, Shield, Menu, X, Heart, Bell, BarChart3, Package } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function Header() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (user) {
+      axios.get(`${API}/api/notifications/unread-count`, { withCredentials: true })
+        .then(res => setUnreadCount(res.data.count))
+        .catch(() => {});
+    }
+  }, [user]);
 
   const handleLogout = async () => {
     await logout();
@@ -66,7 +78,23 @@ export default function Header() {
           {/* User Menu */}
           <div className="flex items-center gap-4">
             {user ? (
-              <DropdownMenu>
+              <>
+                {/* Wishlist icon */}
+                <Link to="/wishlist" className="relative text-[#C0C0C0] hover:text-white transition-colors" data-testid="header-wishlist">
+                  <Heart className="w-5 h-5" />
+                </Link>
+
+                {/* Notification bell */}
+                <Link to="/notifications" className="relative text-[#C0C0C0] hover:text-white transition-colors" data-testid="header-notifications">
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#39FF14] text-black text-[10px] font-bold rounded-full flex items-center justify-center">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
+
+                <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="text-white hover:bg-white/10 rounded-none" data-testid="user-menu-button">
                     <User className="w-5 h-5 mr-2" />
@@ -94,6 +122,14 @@ export default function Header() {
                       </DropdownMenuItem>
                       <DropdownMenuItem 
                         className="text-[#C0C0C0] hover:text-white hover:bg-white/5 rounded-none cursor-pointer"
+                        onClick={() => navigate('/brand/analytics')}
+                        data-testid="brand-analytics-link"
+                      >
+                        <BarChart3 className="w-4 h-4 mr-2" />
+                        Analytics
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="text-[#C0C0C0] hover:text-white hover:bg-white/5 rounded-none cursor-pointer"
                         onClick={() => navigate('/brand/products')}
                         data-testid="my-products-link"
                       >
@@ -102,6 +138,23 @@ export default function Header() {
                       </DropdownMenuItem>
                     </>
                   )}
+                  
+                  <DropdownMenuItem 
+                    className="text-[#C0C0C0] hover:text-white hover:bg-white/5 rounded-none cursor-pointer"
+                    onClick={() => navigate('/wishlist')}
+                    data-testid="wishlist-link"
+                  >
+                    <Heart className="w-4 h-4 mr-2" />
+                    Wishlist
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    className="text-[#C0C0C0] hover:text-white hover:bg-white/5 rounded-none cursor-pointer"
+                    onClick={() => navigate('/orders')}
+                    data-testid="orders-link"
+                  >
+                    <Package className="w-4 h-4 mr-2" />
+                    My Orders
+                  </DropdownMenuItem>
                   
                   {user.role === 'admin' && (
                     <DropdownMenuItem 
@@ -126,6 +179,7 @@ export default function Header() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              </>
             ) : (
               <div className="flex items-center gap-3">
                 <Link to="/login">

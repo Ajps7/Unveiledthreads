@@ -13,9 +13,11 @@ import Brands from "./pages/Brands";
 import BrandProfile from "./pages/BrandProfile";
 import BrandApplication from "./pages/BrandApplication";
 import BrandDashboard from "./pages/BrandDashboard";
+import BrandAnalytics from "./pages/BrandAnalytics";
 import BoostSuccess from "./pages/BoostSuccess";
 import OrderSuccess from "./pages/OrderSuccess";
 import MyOrders from "./pages/MyOrders";
+import Wishlist from "./pages/Wishlist";
 import AdminDashboard from "./pages/AdminDashboard";
 
 function App() {
@@ -34,9 +36,11 @@ function App() {
             <Route path="/apply" element={<BrandApplication />} />
             <Route path="/brand/dashboard" element={<BrandDashboard />} />
             <Route path="/brand/products" element={<BrandDashboard />} />
+            <Route path="/brand/analytics" element={<BrandAnalytics />} />
             <Route path="/boost/success" element={<BoostSuccess />} />
             <Route path="/order/success" element={<OrderSuccess />} />
             <Route path="/orders" element={<MyOrders />} />
+            <Route path="/wishlist" element={<Wishlist />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
         </BrowserRouter>

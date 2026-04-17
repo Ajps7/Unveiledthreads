@@ -6,7 +6,9 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 import requests as http_requests
+import resend
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
@@ -35,6 +37,12 @@ storage_key = None
 
 # Platform fee config
 PLATFORM_FEE_PERCENT = float(os.environ.get("PLATFORM_FEE_PERCENT", "10"))
+
+# Resend email config
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
@@ -1265,7 +1273,7 @@ async def get_brand_orders(request: Request):
 # ============ NOTIFICATIONS ============
 
 async def create_notification(user_id: Optional[str], brand_id: Optional[str], notification_type: str, title: str, message: str, metadata: Optional[dict] = None):
-    """Create a notification (mock email — stored in DB)"""
+    """Create a notification and send email via Resend (falls back to mock if no API key)"""
     notif_doc = {
         "user_id": user_id,
         "brand_id": brand_id,
@@ -1274,10 +1282,49 @@ async def create_notification(user_id: Optional[str], brand_id: Optional[str], n
         "message": message,
         "metadata": metadata or {},
         "read": False,
+        "email_sent": False,
         "created_at": datetime.now(timezone.utc)
     }
-    await db.notifications.insert_one(notif_doc)
-    logger.info(f"[MOCK EMAIL] To: user={user_id} brand={brand_id} | {title} | {message}")
+    result = await db.notifications.insert_one(notif_doc)
+    
+    # Try to send real email via Resend
+    recipient_email = None
+    if user_id:
+        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+        if user_doc:
+            recipient_email = user_doc.get("email")
+    elif brand_id:
+        brand_doc = await db.brands.find_one({"_id": ObjectId(brand_id)})
+        if brand_doc:
+            user_doc = await db.users.find_one({"_id": ObjectId(brand_doc["user_id"])})
+            if user_doc:
+                recipient_email = user_doc.get("email")
+    
+    if RESEND_API_KEY and recipient_email:
+        try:
+            html_content = f"""
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+                <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+                <hr style="border:1px solid #27272A;margin:16px 0;">
+                <h2 style="color:#fff;font-size:20px;">{title}</h2>
+                <p style="color:#9CA3AF;line-height:1.6;">{message}</p>
+                <hr style="border:1px solid #27272A;margin:24px 0;">
+                <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+            </div>
+            """
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [recipient_email],
+                "subject": f"Unveiled Threads — {title}",
+                "html": html_content
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            await db.notifications.update_one({"_id": result.inserted_id}, {"$set": {"email_sent": True}})
+            logger.info(f"[EMAIL SENT] To: {recipient_email} | {title}")
+        except Exception as e:
+            logger.warning(f"[EMAIL FAILED] To: {recipient_email} | {title} | Error: {e}")
+    else:
+        logger.info(f"[MOCK EMAIL] To: user={user_id} brand={brand_id} | {title} | {message}")
 
 @api_router.get("/notifications")
 async def get_notifications(request: Request):
@@ -1318,6 +1365,173 @@ async def get_unread_count(request: Request):
     
     count = await db.notifications.count_documents(query)
     return {"count": count}
+
+# ============ WISHLIST ============
+
+@api_router.post("/wishlist/{product_id}")
+async def add_to_wishlist(product_id: str, request: Request):
+    user = await get_current_user(request)
+    
+    product = await db.products.find_one({"_id": ObjectId(product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    existing = await db.wishlist.find_one({"user_id": user["id"], "product_id": product_id})
+    if existing:
+        return {"message": "Already in wishlist", "in_wishlist": True}
+    
+    await db.wishlist.insert_one({
+        "user_id": user["id"],
+        "product_id": product_id,
+        "created_at": datetime.now(timezone.utc)
+    })
+    return {"message": "Added to wishlist", "in_wishlist": True}
+
+@api_router.delete("/wishlist/{product_id}")
+async def remove_from_wishlist(product_id: str, request: Request):
+    user = await get_current_user(request)
+    await db.wishlist.delete_one({"user_id": user["id"], "product_id": product_id})
+    return {"message": "Removed from wishlist", "in_wishlist": False}
+
+@api_router.get("/wishlist")
+async def get_wishlist(request: Request):
+    user = await get_current_user(request)
+    
+    wishlist_items = await db.wishlist.find({"user_id": user["id"]}).sort("created_at", -1).to_list(50)
+    
+    result = []
+    for item in wishlist_items:
+        product = await db.products.find_one({"_id": ObjectId(item["product_id"])})
+        if product:
+            product["id"] = str(product["_id"])
+            del product["_id"]
+            product["wishlisted_at"] = item["created_at"]
+            result.append(product)
+    
+    return result
+
+@api_router.get("/wishlist/check/{product_id}")
+async def check_wishlist(product_id: str, request: Request):
+    user = await get_current_user(request)
+    existing = await db.wishlist.find_one({"user_id": user["id"], "product_id": product_id})
+    return {"in_wishlist": existing is not None}
+
+@api_router.get("/wishlist/ids")
+async def get_wishlist_ids(request: Request):
+    user = await get_current_user(request)
+    items = await db.wishlist.find({"user_id": user["id"]}, {"product_id": 1, "_id": 0}).to_list(200)
+    return [item["product_id"] for item in items]
+
+# ============ BRAND ANALYTICS ============
+
+@api_router.post("/analytics/view/{product_id}")
+async def track_product_view(product_id: str, request: Request):
+    """Track a product view (anonymous or authenticated)"""
+    user = await get_optional_user(request)
+    
+    await db.product_views.insert_one({
+        "product_id": product_id,
+        "user_id": user["id"] if user else None,
+        "created_at": datetime.now(timezone.utc)
+    })
+    return {"message": "View tracked"}
+
+@api_router.get("/analytics/brand")
+async def get_brand_analytics(request: Request, days: int = 30):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    brand_id = str(brand["_id"])
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=days)
+    
+    # Get brand's product IDs
+    products = await db.products.find({"brand_id": brand_id}, {"_id": 1, "name": 1}).to_list(100)
+    product_ids = [str(p["_id"]) for p in products]
+    product_names = {str(p["_id"]): p["name"] for p in products}
+    
+    # Total views
+    total_views = await db.product_views.count_documents({
+        "product_id": {"$in": product_ids},
+        "created_at": {"$gte": start_date}
+    })
+    
+    # Views per day for chart
+    views_pipeline = [
+        {"$match": {"product_id": {"$in": product_ids}, "created_at": {"$gte": start_date}}},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+            "count": {"$sum": 1}
+        }},
+        {"$sort": {"_id": 1}}
+    ]
+    daily_views = []
+    async for doc in db.product_views.aggregate(views_pipeline):
+        daily_views.append({"date": doc["_id"], "views": doc["count"]})
+    
+    # Orders and revenue
+    orders = await db.orders.find({
+        "brand_id": brand_id,
+        "status": "paid",
+        "created_at": {"$gte": start_date}
+    }).to_list(500)
+    
+    total_orders = len(orders)
+    total_revenue = sum(o.get("brand_payout", 0) for o in orders)
+    
+    # Revenue per day for chart
+    revenue_by_day = {}
+    for order in orders:
+        day = order["created_at"].strftime("%Y-%m-%d") if isinstance(order["created_at"], datetime) else str(order["created_at"])[:10]
+        revenue_by_day[day] = revenue_by_day.get(day, 0) + order.get("brand_payout", 0)
+    
+    daily_revenue = [{"date": k, "revenue": round(v, 2)} for k, v in sorted(revenue_by_day.items())]
+    
+    # Top selling products
+    product_sales = {}
+    for order in orders:
+        pid = order["product_id"]
+        product_sales[pid] = product_sales.get(pid, {"count": 0, "revenue": 0})
+        product_sales[pid]["count"] += 1
+        product_sales[pid]["revenue"] += order.get("brand_payout", 0)
+    
+    top_products = []
+    for pid, stats in sorted(product_sales.items(), key=lambda x: x[1]["revenue"], reverse=True)[:5]:
+        top_products.append({
+            "product_id": pid,
+            "name": product_names.get(pid, "Unknown"),
+            "orders": stats["count"],
+            "revenue": round(stats["revenue"], 2)
+        })
+    
+    # Views per product
+    views_per_product_pipeline = [
+        {"$match": {"product_id": {"$in": product_ids}, "created_at": {"$gte": start_date}}},
+        {"$group": {"_id": "$product_id", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5}
+    ]
+    top_viewed = []
+    async for doc in db.product_views.aggregate(views_per_product_pipeline):
+        top_viewed.append({
+            "product_id": doc["_id"],
+            "name": product_names.get(doc["_id"], "Unknown"),
+            "views": doc["count"]
+        })
+    
+    return {
+        "period_days": days,
+        "total_views": total_views,
+        "total_orders": total_orders,
+        "total_revenue": round(total_revenue, 2),
+        "daily_views": daily_views,
+        "daily_revenue": daily_revenue,
+        "top_products": top_products,
+        "top_viewed": top_viewed,
+        "conversion_rate": round((total_orders / total_views * 100), 2) if total_views > 0 else 0
+    }
 
 # ============ SEED DATA ============
 
@@ -1506,6 +1720,9 @@ async def startup_event():
     await db.notifications.create_index("brand_id")
     await db.files.create_index("storage_path")
     await db.files.create_index("file_id")
+    await db.wishlist.create_index([("user_id", 1), ("product_id", 1)], unique=True)
+    await db.product_views.create_index("product_id")
+    await db.product_views.create_index("created_at")
     
     # Init object storage
     try:

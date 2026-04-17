@@ -28,6 +28,8 @@ export default function ProductDetail() {
       if (response.data.sizes && response.data.sizes.length > 0) {
         setSelectedSize(response.data.sizes[0]);
       }
+      // Track product view
+      axios.post(`${API}/api/analytics/view/${id}`, {}, { withCredentials: true }).catch(() => {});
     } catch (error) {
       console.error('Error fetching product:', error);
     } finally {

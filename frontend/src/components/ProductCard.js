@@ -1,17 +1,42 @@
 import { Link } from 'react-router-dom';
-import { Zap } from 'lucide-react';
+import { Heart } from 'lucide-react';
+import axios from 'axios';
 
-export default function ProductCard({ product }) {
+const API = process.env.REACT_APP_BACKEND_URL;
+
+export default function ProductCard({ product, isWishlisted = false, onWishlistToggle, showWishlist = false }) {
+
+  const handleWishlistClick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onWishlistToggle) return;
+    try {
+      if (isWishlisted) {
+        await axios.delete(`${API}/api/wishlist/${product.id}`, { withCredentials: true });
+      } else {
+        await axios.post(`${API}/api/wishlist/${product.id}`, {}, { withCredentials: true });
+      }
+      onWishlistToggle(product.id, !isWishlisted);
+    } catch (err) {
+      // If 401 (not logged in), ignore silently
+      if (err.response?.status !== 401) console.error(err);
+    }
+  };
+
+  const imgSrc = product.images && product.images.length > 0
+    ? (product.images[0].startsWith('/api/') ? `${API}${product.images[0]}` : product.images[0])
+    : null;
+
   return (
-    <Link 
+    <Link
       to={`/products/${product.id}`}
-      className="card-product group"
+      className="card-product group relative"
       data-testid={`product-card-${product.id}`}
     >
       <div className="aspect-[3/4] overflow-hidden bg-[#0F0F0F] relative">
-        {product.images && product.images.length > 0 ? (
+        {imgSrc ? (
           <img
-            src={product.images[0]}
+            src={imgSrc}
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
@@ -20,8 +45,21 @@ export default function ProductCard({ product }) {
             No Image
           </div>
         )}
+
+        {/* Wishlist heart */}
+        {showWishlist && (
+          <button
+            onClick={handleWishlistClick}
+            className="absolute top-3 right-3 z-10 p-2 bg-black/50 backdrop-blur-sm border border-white/10 hover:border-[#39FF14]/50 transition-all"
+            data-testid={`wishlist-toggle-${product.id}`}
+          >
+            <Heart
+              className={`w-4 h-4 transition-colors ${isWishlisted ? 'fill-[#39FF14] text-[#39FF14]' : 'text-white/70 hover:text-white'}`}
+            />
+          </button>
+        )}
       </div>
-      
+
       <div className="p-4 border-t border-white/10">
         <p className="text-xs text-[#39FF14] uppercase tracking-wider mb-1">
           {product.brand_name}

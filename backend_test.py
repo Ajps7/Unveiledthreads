@@ -354,6 +354,62 @@ class UKStreetwearAPITester:
             401
         )
 
+    def test_wishlist_endpoints(self):
+        """Test wishlist endpoints"""
+        print("\n=== TESTING WISHLIST ENDPOINTS ===")
+        
+        # Test wishlist without auth (should fail)
+        self.run_test(
+            "Get Wishlist (No Auth)",
+            "GET",
+            "api/wishlist",
+            401
+        )
+        
+        # Test wishlist IDs without auth (should fail)
+        self.run_test(
+            "Get Wishlist IDs (No Auth)",
+            "GET",
+            "api/wishlist/ids",
+            401
+        )
+        
+        # Test add to wishlist without auth (should fail)
+        self.run_test(
+            "Add to Wishlist (No Auth)",
+            "POST",
+            "api/wishlist/test_product_id",
+            401
+        )
+        
+        # Test remove from wishlist without auth (should fail)
+        self.run_test(
+            "Remove from Wishlist (No Auth)",
+            "DELETE",
+            "api/wishlist/test_product_id",
+            401
+        )
+
+    def test_analytics_endpoints(self):
+        """Test analytics endpoints"""
+        print("\n=== TESTING ANALYTICS ENDPOINTS ===")
+        
+        # Test brand analytics without auth (should fail)
+        self.run_test(
+            "Get Brand Analytics (No Auth)",
+            "GET",
+            "api/analytics/brand",
+            401
+        )
+        
+        # Test product view tracking (should work without auth)
+        self.run_test(
+            "Track Product View",
+            "POST",
+            "api/analytics/view/test_product_id",
+            200
+        )
+
     def test_file_serving(self):
         """Test file serving endpoint"""
         print("\n=== TESTING FILE SERVING ===")
@@ -378,6 +434,8 @@ class UKStreetwearAPITester:
         self.test_boost_endpoints()
         
         # Test new features
+        self.test_wishlist_endpoints()
+        self.test_analytics_endpoints()
         self.test_image_upload_endpoints()
         self.test_orders_endpoints()
         self.test_notifications_endpoints()

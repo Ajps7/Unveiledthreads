@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Marquee from 'react-fast-marquee';
@@ -8,22 +8,40 @@ import { Input } from '../components/ui/input';
 import Header from '../components/Header';
 import ProductCard from '../components/ProductCard';
 import BrandCard from '../components/BrandCard';
+import { useAuth } from '../context/AuthContext';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
 const TRENDING_BRANDS = ['INDEPENDENT', 'UK MADE', 'SMALL BATCH', 'UNDERGROUND', 'HANDCRAFTED', 'LIMITED DROPS', 'ETHICALLY SOURCED'];
 
 export default function Home() {
+  const { user } = useAuth();
   const [brandOfWeek, setBrandOfWeek] = useState(null);
   const [boostedBrands, setBoostedBrands] = useState([]);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+  const [wishlistIds, setWishlistIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (user) fetchWishlistIds();
+  }, [user]);
+
+  const fetchWishlistIds = async () => {
+    try {
+      const res = await axios.get(`${API}/api/wishlist/ids`, { withCredentials: true });
+      setWishlistIds(res.data);
+    } catch (e) { /* ignore if not logged in */ }
+  };
+
+  const handleWishlistToggle = (productId, nowWishlisted) => {
+    setWishlistIds(prev => nowWishlisted ? [...prev, productId] : prev.filter(id => id !== productId));
+  };
 
   const fetchData = async () => {
     try {
@@ -263,7 +281,13 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6" data-testid="products-grid">
               {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  showWishlist={!!user}
+                  isWishlisted={wishlistIds.includes(product.id)}
+                  onWishlistToggle={handleWishlistToggle}
+                />
               ))}
             </div>
           )}
