@@ -22,15 +22,19 @@ export default function Header() {
   const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
-    if (user) {
-      Promise.all([
-        axios.get(`${API}/api/notifications/unread-count`, { withCredentials: true }).catch(() => ({ data: { count: 0 } })),
-        axios.get(`${API}/api/messages/unread-count`, { withCredentials: true }).catch(() => ({ data: { count: 0 } }))
-      ]).then(([notifRes, msgRes]) => {
-        setUnreadCount(notifRes.data.count);
-        setUnreadMessages(msgRes.data.count);
-      });
-    }
+    if (!user) return;
+    
+    const poll = async () => {
+      try {
+        const res = await axios.get(`${API}/api/notifications/poll`, { withCredentials: true });
+        setUnreadCount(res.data.notifications);
+        setUnreadMessages(res.data.messages);
+      } catch (e) { /* ignore */ }
+    };
+    
+    poll();
+    const interval = setInterval(poll, 10000); // Poll every 10s
+    return () => clearInterval(interval);
   }, [user]);
 
   const handleLogout = async () => {

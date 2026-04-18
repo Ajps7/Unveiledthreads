@@ -353,6 +353,14 @@ class UKStreetwearAPITester:
             "api/notifications/unread-count",
             401
         )
+        
+        # Test NEW FEATURE: notification polling endpoint without auth (should fail)
+        self.run_test(
+            "Notification Poll (No Auth)",
+            "GET",
+            "api/notifications/poll",
+            401
+        )
 
     def test_wishlist_endpoints(self):
         """Test wishlist endpoints"""
@@ -573,6 +581,70 @@ class UKStreetwearAPITester:
             "api/orders/non_existent_order_id/shipping-label",
             404
         )
+        
+        # Test shipping label endpoint structure (should fail with 401 for auth)
+        success, response = self.run_test(
+            "Get Shipping Label (No Auth)",
+            "GET", 
+            "api/orders/test_order_id/shipping-label",
+            401
+        )
+
+    def test_authenticated_features(self):
+        """Test authenticated features with valid login"""
+        print("\n=== TESTING AUTHENTICATED FEATURES ===")
+        
+        # First login as admin to get session cookies
+        success, response = self.run_test(
+            "Admin Login for Auth Tests",
+            "POST",
+            "api/auth/login",
+            200,
+            data={
+                "email": "admin@ukstreetwear.com",
+                "password": "Admin123!"
+            }
+        )
+        
+        if success:
+            # Test notification polling with auth
+            success, poll_response = self.run_test(
+                "Notification Poll (Authenticated)",
+                "GET",
+                "api/notifications/poll",
+                200
+            )
+            
+            if success:
+                # Verify poll response structure
+                expected_keys = ['notifications', 'messages', 'total', 'latest']
+                missing_keys = [key for key in expected_keys if key not in poll_response]
+                if not missing_keys:
+                    print(f"✅ Poll response structure valid")
+                    print(f"   Notifications: {poll_response.get('notifications', 0)}")
+                    print(f"   Messages: {poll_response.get('messages', 0)}")
+                    print(f"   Total: {poll_response.get('total', 0)}")
+                    print(f"   Latest items: {len(poll_response.get('latest', []))}")
+                else:
+                    print(f"❌ Poll response missing keys: {missing_keys}")
+            
+            # Test notifications endpoint with auth
+            self.run_test(
+                "Get Notifications (Authenticated)",
+                "GET",
+                "api/notifications",
+                200
+            )
+            
+            # Test unread count with auth
+            self.run_test(
+                "Get Unread Count (Authenticated)",
+                "GET",
+                "api/notifications/unread-count",
+                200
+            )
+        else:
+            print("❌ Could not authenticate for feature tests")
 
     def run_all_tests(self):
         """Run all API tests"""
@@ -600,6 +672,7 @@ class UKStreetwearAPITester:
         self.test_referral_system()
         self.test_messaging_system()
         self.test_shipping_labels()
+        self.test_authenticated_features()
         
         # Test protected endpoints
         self.test_brand_application_flow()

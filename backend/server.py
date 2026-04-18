@@ -44,6 +44,13 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 
+# Shippo config
+SHIPPO_API_KEY = os.environ.get("SHIPPO_API_KEY", "")
+shippo_sdk = None
+if SHIPPO_API_KEY:
+    import shippo
+    shippo_sdk = shippo.Shippo(api_key_header=SHIPPO_API_KEY)
+
 def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
@@ -1428,13 +1435,57 @@ async def get_unread_count(request: Request):
     count = await db.notifications.count_documents(query)
     return {"count": count}
 
+@api_router.get("/notifications/poll")
+async def poll_notifications(request: Request):
+    """Combined poll endpoint for real-time in-app notifications. Returns all unread counts + latest notifications."""
+    user = await get_current_user(request)
+    
+    # Notification count
+    notif_query = {"read": False, "$or": [{"user_id": user["id"]}]}
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if brand:
+        notif_query["$or"].append({"brand_id": str(brand["_id"])})
+    
+    notif_count = await db.notifications.count_documents(notif_query)
+    
+    # Unread messages count
+    convos = await db.conversations.find({
+        "$or": [{"participant_1": user["id"]}, {"participant_2": user["id"]}]
+    }, {"_id": 1}).to_list(100)
+    convo_ids = [str(c["_id"]) for c in convos]
+    
+    msg_count = 0
+    if convo_ids:
+        msg_count = await db.messages.count_documents({
+            "conversation_id": {"$in": convo_ids},
+            "sender_id": {"$ne": user["id"]},
+            "read": False
+        })
+    
+    # Latest 3 unread notifications
+    latest = []
+    latest_notifs = await db.notifications.find(notif_query).sort("created_at", -1).limit(3).to_list(3)
+    for n in latest_notifs:
+        n["id"] = str(n["_id"])
+        del n["_id"]
+        if isinstance(n.get("created_at"), datetime):
+            n["created_at"] = n["created_at"].isoformat()
+        latest.append(n)
+    
+    return {
+        "notifications": notif_count,
+        "messages": msg_count,
+        "total": notif_count + msg_count,
+        "latest": latest
+    }
+
 # ============ REVIEWS & RATINGS ============
 
 @api_router.post("/reviews")
 async def create_review(review: ReviewCreate, request: Request):
     user = await get_current_user(request)
     
-    order = await db.orders.find_one({"_id": ObjectId(review.order_id)})
+    order = await db.orders.find_one({"_id": safe_object_id(review.order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order["buyer_id"] != user["id"]:
@@ -2095,7 +2146,69 @@ async def get_shipping_label(order_id: str, request: Request):
         "tracking_number": order.get("tracking_number", ""),
         "date": datetime.now(timezone.utc).strftime("%d/%m/%Y"),
         "weight": "Estimated: 0.5kg",
+        "shippo_label_url": None,
+        "mode": "mock"
     }
+    
+    # Try Shippo for real label
+    if shippo_sdk and order.get("tracking_number"):
+        try:
+            # Check if we already have a Shippo label cached
+            existing_label = await db.shipping_labels.find_one({"order_id": order_id})
+            if existing_label and existing_label.get("label_url"):
+                label_data["shippo_label_url"] = existing_label["label_url"]
+                label_data["mode"] = "shippo"
+            else:
+                # Create shipment via Shippo
+                shipment = await asyncio.to_thread(
+                    shippo_sdk.shipments.create,
+                    {
+                        "address_from": {
+                            "name": brand["brand_name"],
+                            "city": brand.get("location", "London"),
+                            "country": "GB"
+                        },
+                        "address_to": {
+                            "name": buyer["name"] if buyer else "Customer",
+                            "city": "London",
+                            "country": "GB"
+                        },
+                        "parcels": [{
+                            "length": "30",
+                            "width": "20",
+                            "height": "5",
+                            "distance_unit": "cm",
+                            "weight": "0.5",
+                            "mass_unit": "kg"
+                        }]
+                    }
+                )
+                
+                if shipment and hasattr(shipment, 'rates') and shipment.rates:
+                    # Pick cheapest rate
+                    rate = min(shipment.rates, key=lambda r: float(r.amount))
+                    transaction = await asyncio.to_thread(
+                        shippo_sdk.transactions.create,
+                        {
+                            "rate": rate.object_id,
+                            "label_file_type": "PDF"
+                        }
+                    )
+                    
+                    if transaction and hasattr(transaction, 'label_url') and transaction.label_url:
+                        label_data["shippo_label_url"] = transaction.label_url
+                        label_data["mode"] = "shippo"
+                        # Cache the label
+                        await db.shipping_labels.insert_one({
+                            "order_id": order_id,
+                            "label_url": transaction.label_url,
+                            "rate_id": rate.object_id,
+                            "carrier": rate.provider,
+                            "amount": rate.amount,
+                            "created_at": datetime.now(timezone.utc)
+                        })
+        except Exception as e:
+            logger.warning(f"Shippo label generation failed, falling back to mock: {e}")
     
     return label_data
 

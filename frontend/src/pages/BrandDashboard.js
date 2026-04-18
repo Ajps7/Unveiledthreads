@@ -169,6 +169,14 @@ export default function BrandDashboard() {
     try {
       const res = await axios.get(`${API}/api/orders/${orderId}/shipping-label`, { withCredentials: true });
       const label = res.data;
+      
+      // If Shippo generated a real label PDF, open it directly
+      if (label.shippo_label_url) {
+        window.open(label.shippo_label_url, '_blank');
+        return;
+      }
+      
+      // Otherwise generate mock printable label
       const printWindow = window.open('', '_blank', 'width=600,height=400');
       printWindow.document.write(`
         <html><head><title>Shipping Label - ${label.order_id}</title>
