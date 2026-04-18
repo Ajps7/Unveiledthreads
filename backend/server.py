@@ -47,6 +47,13 @@ if RESEND_API_KEY:
 def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
 
+def safe_object_id(id_str: str) -> ObjectId:
+    """Convert string to ObjectId safely, raise 404 if invalid."""
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
+
 # Create the main app
 app = FastAPI(title="Unveiled Threads API")
 
@@ -508,7 +515,7 @@ async def get_all_applications(request: Request, status: Optional[str] = None):
 async def approve_application(application_id: str, request: Request):
     await require_admin(request)
     
-    application = await db.brand_applications.find_one({"_id": ObjectId(application_id)})
+    application = await db.brand_applications.find_one({"_id": safe_object_id(application_id)})
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
     
@@ -517,7 +524,7 @@ async def approve_application(application_id: str, request: Request):
     
     # Update application status
     await db.brand_applications.update_one(
-        {"_id": ObjectId(application_id)},
+        {"_id": safe_object_id(application_id)},
         {"$set": {"status": "approved", "approved_at": datetime.now(timezone.utc)}}
     )
     
@@ -561,7 +568,7 @@ async def approve_application(application_id: str, request: Request):
 async def reject_application(application_id: str, request: Request):
     await require_admin(request)
     
-    application = await db.brand_applications.find_one({"_id": ObjectId(application_id)})
+    application = await db.brand_applications.find_one({"_id": safe_object_id(application_id)})
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
     
@@ -569,7 +576,7 @@ async def reject_application(application_id: str, request: Request):
         raise HTTPException(status_code=400, detail="Application already processed")
     
     await db.brand_applications.update_one(
-        {"_id": ObjectId(application_id)},
+        {"_id": safe_object_id(application_id)},
         {"$set": {"status": "rejected", "rejected_at": datetime.now(timezone.utc)}}
     )
     
@@ -643,7 +650,7 @@ async def get_brand_of_week():
 
 @api_router.get("/brands/{brand_id}")
 async def get_brand(brand_id: str):
-    brand = await db.brands.find_one({"_id": ObjectId(brand_id)})
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
@@ -698,7 +705,7 @@ async def set_brand_of_week(brand_id: str, request: Request):
     
     # Set new brand of week
     result = await db.brands.update_one(
-        {"_id": ObjectId(brand_id)},
+        {"_id": safe_object_id(brand_id)},
         {"$set": {"is_brand_of_week": True}}
     )
     
@@ -777,7 +784,7 @@ async def get_products(
 
 @api_router.get("/products/{product_id}")
 async def get_product(product_id: str):
-    product = await db.products.find_one({"_id": ObjectId(product_id)})
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -798,7 +805,7 @@ async def update_product(product_id: str, request: Request):
     user = await require_brand(request)
     data = await request.json()
     
-    product = await db.products.find_one({"_id": ObjectId(product_id)})
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -814,11 +821,11 @@ async def update_product(product_id: str, request: Request):
     
     if update_fields:
         await db.products.update_one(
-            {"_id": ObjectId(product_id)},
+            {"_id": safe_object_id(product_id)},
             {"$set": update_fields}
         )
     
-    updated = await db.products.find_one({"_id": ObjectId(product_id)})
+    updated = await db.products.find_one({"_id": safe_object_id(product_id)})
     updated["id"] = str(updated["_id"])
     del updated["_id"]
     
@@ -828,7 +835,7 @@ async def update_product(product_id: str, request: Request):
 async def delete_product(product_id: str, request: Request):
     user = await require_brand(request)
     
-    product = await db.products.find_one({"_id": ObjectId(product_id)})
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -836,7 +843,7 @@ async def delete_product(product_id: str, request: Request):
     if not brand or str(brand["_id"]) != product["brand_id"]:
         raise HTTPException(status_code=403, detail="Not authorized to delete this product")
     
-    await db.products.delete_one({"_id": ObjectId(product_id)})
+    await db.products.delete_one({"_id": safe_object_id(product_id)})
     return {"message": "Product deleted"}
 
 # ============ CATEGORIES ============
@@ -1349,7 +1356,7 @@ async def create_notification(user_id: Optional[str], brand_id: Optional[str], n
         if user_doc:
             recipient_email = user_doc.get("email")
     elif brand_id:
-        brand_doc = await db.brands.find_one({"_id": ObjectId(brand_id)})
+        brand_doc = await db.brands.find_one({"_id": safe_object_id(brand_id)})
         if brand_doc:
             user_doc = await db.users.find_one({"_id": ObjectId(brand_doc["user_id"])})
             if user_doc:
@@ -1404,7 +1411,7 @@ async def get_notifications(request: Request):
 async def mark_notification_read(notification_id: str, request: Request):
     await get_current_user(request)
     await db.notifications.update_one(
-        {"_id": ObjectId(notification_id)},
+        {"_id": safe_object_id(notification_id)},
         {"$set": {"read": True}}
     )
     return {"message": "Marked as read"}
@@ -1521,7 +1528,7 @@ async def ship_order(order_id: str, ship_data: ShipOrderRequest, request: Reques
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
-    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    order = await db.orders.find_one({"_id": safe_object_id(order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order["brand_id"] != str(brand["_id"]):
@@ -1537,7 +1544,7 @@ async def ship_order(order_id: str, ship_data: ShipOrderRequest, request: Reques
     }
     
     await db.orders.update_one(
-        {"_id": ObjectId(order_id)},
+        {"_id": safe_object_id(order_id)},
         {
             "$set": {
                 "shipping_status": "shipped",
@@ -1568,7 +1575,7 @@ async def update_shipping_status(order_id: str, status_data: UpdateShippingStatu
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
-    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    order = await db.orders.find_one({"_id": safe_object_id(order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order["brand_id"] != str(brand["_id"]):
@@ -1597,7 +1604,7 @@ async def update_shipping_status(order_id: str, status_data: UpdateShippingStatu
         update_fields["delivered_at"] = now
     
     await db.orders.update_one(
-        {"_id": ObjectId(order_id)},
+        {"_id": safe_object_id(order_id)},
         {"$set": update_fields, "$push": {"shipping_updates": shipping_update}}
     )
     
@@ -1617,7 +1624,7 @@ async def update_shipping_status(order_id: str, status_data: UpdateShippingStatu
 async def get_order_detail(order_id: str, request: Request):
     user = await get_current_user(request)
     
-    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    order = await db.orders.find_one({"_id": safe_object_id(order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
@@ -1651,7 +1658,7 @@ async def get_order_detail(order_id: str, request: Request):
 async def add_to_wishlist(product_id: str, request: Request):
     user = await get_current_user(request)
     
-    product = await db.products.find_one({"_id": ObjectId(product_id)})
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -1941,7 +1948,7 @@ async def get_conversations(request: Request):
 async def get_messages(conversation_id: str, request: Request):
     user = await get_current_user(request)
     
-    convo = await db.conversations.find_one({"_id": ObjectId(conversation_id)})
+    convo = await db.conversations.find_one({"_id": safe_object_id(conversation_id)})
     if not convo:
         raise HTTPException(status_code=404, detail="Conversation not found")
     if user["id"] not in [convo["participant_1"], convo["participant_2"]]:
@@ -1977,7 +1984,7 @@ async def send_message(msg: MessageSend, request: Request):
         raise HTTPException(status_code=400, detail=warning)
     
     # Check recipient exists
-    recipient = await db.users.find_one({"_id": ObjectId(msg.recipient_id)})
+    recipient = await db.users.find_one({"_id": safe_object_id(msg.recipient_id)})
     if not recipient:
         raise HTTPException(status_code=404, detail="Recipient not found")
     
@@ -2063,14 +2070,14 @@ async def get_shipping_label(order_id: str, request: Request):
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
-    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    order = await db.orders.find_one({"_id": safe_object_id(order_id)})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order["brand_id"] != str(brand["_id"]):
         raise HTTPException(status_code=403, detail="Not your order")
     
     # Get buyer info
-    buyer = await db.users.find_one({"_id": ObjectId(order["buyer_id"])})
+    buyer = await db.users.find_one({"_id": safe_object_id(order["buyer_id"])})
     
     label_data = {
         "order_id": order_id,
