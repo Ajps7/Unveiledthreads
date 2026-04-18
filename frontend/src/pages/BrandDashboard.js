@@ -165,6 +165,42 @@ export default function BrandDashboard() {
     }
   };
 
+  const handlePrintLabel = async (orderId) => {
+    try {
+      const res = await axios.get(`${API}/api/orders/${orderId}/shipping-label`, { withCredentials: true });
+      const label = res.data;
+      const printWindow = window.open('', '_blank', 'width=600,height=400');
+      printWindow.document.write(`
+        <html><head><title>Shipping Label - ${label.order_id}</title>
+        <style>
+          body { font-family: monospace; padding: 30px; background: #fff; color: #000; }
+          .label { border: 3px solid #000; padding: 24px; max-width: 500px; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 16px; }
+          .header h1 { font-size: 18px; margin: 0; }
+          .section { margin-bottom: 16px; }
+          .section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 4px; }
+          .section p { font-size: 14px; margin: 2px 0; }
+          .tracking { text-align: center; font-size: 18px; letter-spacing: 3px; padding: 12px; border: 2px dashed #000; margin-top: 16px; }
+          .footer { text-align: center; font-size: 10px; color: #999; margin-top: 16px; }
+          @media print { body { padding: 0; } }
+        </style></head><body>
+        <div class="label">
+          <div class="header"><h1>UNVEILED THREADS</h1><p style="font-size:11px;">Shipping Label</p></div>
+          <div class="section"><h3>From</h3><p><strong>${label.from.name}</strong></p><p>${label.from.location}</p></div>
+          <div class="section"><h3>To</h3><p><strong>${label.to.name}</strong></p><p>${label.to.email}</p></div>
+          <div class="section"><h3>Item</h3><p>${label.product} — Size: ${label.size}</p><p>Weight: ${label.weight}</p></div>
+          ${label.tracking_number ? `<div class="tracking">${label.courier}: ${label.tracking_number}</div>` : ''}
+          <div class="footer"><p>Date: ${label.date} · Order: ${label.order_id.slice(0,8)}</p></div>
+        </div>
+        <script>window.print();</script></body></html>
+      `);
+      printWindow.document.close();
+    } catch (err) {
+      alert('Failed to generate shipping label');
+    }
+  };
+
+
   if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-[#050505]">
@@ -551,9 +587,18 @@ export default function BrandDashboard() {
                         <p className="text-xs text-[#9CA3AF]">Tracking: <span className="text-white font-mono">{order.tracking_number}</span></p>
                         <p className="text-xs text-[#9CA3AF]">via {order.courier}</p>
                       </div>
-                      {order.shipping_status !== 'delivered' && (
-                        <ShippingStatusUpdate orderId={order.id} currentStatus={order.shipping_status} onUpdate={fetchBrandData} />
-                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          className="btn-secondary text-[10px] py-1 px-2"
+                          onClick={() => handlePrintLabel(order.id)}
+                          data-testid={`print-label-${order.id}`}
+                        >
+                          Print Label
+                        </Button>
+                        {order.shipping_status !== 'delivered' && (
+                          <ShippingStatusUpdate orderId={order.id} currentStatus={order.shipping_status} onUpdate={fetchBrandData} />
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

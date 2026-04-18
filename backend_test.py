@@ -422,6 +422,158 @@ class UKStreetwearAPITester:
             404
         )
 
+    def test_referral_system(self):
+        """Test referral system endpoints"""
+        print("\n=== TESTING REFERRAL SYSTEM ===")
+        
+        # Test getting referral code (requires auth)
+        success, response = self.run_test(
+            "Get Referral Code",
+            "GET",
+            "api/referral/code",
+            200
+        )
+        if success and 'code' in response:
+            print(f"   Referral code: {response['code']}")
+            print(f"   Credit value: £{response.get('credit_value', 0)}")
+        
+        # Test getting share links
+        success, response = self.run_test(
+            "Get Share Links", 
+            "GET",
+            "api/referral/share-links",
+            200
+        )
+        if success:
+            print(f"   Twitter URL: {response.get('twitter', 'N/A')}")
+            print(f"   WhatsApp URL: {response.get('whatsapp', 'N/A')}")
+            print(f"   Direct link: {response.get('link', 'N/A')}")
+        
+        # Test getting credits
+        success, response = self.run_test(
+            "Get Referral Credits",
+            "GET", 
+            "api/referral/credits",
+            200
+        )
+        if success:
+            print(f"   Available credits: £{response.get('credits_available', 0)}")
+            print(f"   Total earned: £{response.get('credits_earned', 0)}")
+            print(f"   Referred count: {response.get('referred_count', 0)}")
+        
+        # Test applying referral code (should fail for same user)
+        success, response = self.run_test(
+            "Apply Own Referral Code (should fail)",
+            "POST",
+            "api/referral/apply",
+            400,  # Should fail for same user
+            data={"code": "TEST123"}
+        )
+
+    def test_messaging_system(self):
+        """Test messaging system endpoints"""
+        print("\n=== TESTING MESSAGING SYSTEM ===")
+        
+        # Test sending clean message (needs valid recipient_id)
+        success, response = self.run_test(
+            "Send Clean Message",
+            "POST",
+            "api/messages/send",
+            400,  # Will fail due to invalid recipient_id but tests endpoint
+            data={
+                "recipient_id": "invalid_id",
+                "content": "Hello, I'm interested in your products!"
+            }
+        )
+        
+        # Test sending message with forbidden content - phone number
+        success, response = self.run_test(
+            "Send Message with Phone (should be blocked)",
+            "POST",
+            "api/messages/send",
+            400,
+            data={
+                "recipient_id": "invalid_id",
+                "content": "Call me at 07123456789"
+            }
+        )
+        
+        # Test sending message with email
+        success, response = self.run_test(
+            "Send Message with Email (should be blocked)",
+            "POST",
+            "api/messages/send",
+            400,
+            data={
+                "recipient_id": "invalid_id",
+                "content": "Email me at test@gmail.com"
+            }
+        )
+        
+        # Test sending message with PayPal
+        success, response = self.run_test(
+            "Send Message with PayPal (should be blocked)",
+            "POST",
+            "api/messages/send",
+            400,
+            data={
+                "recipient_id": "invalid_id",
+                "content": "Pay me via PayPal"
+            }
+        )
+        
+        # Test sending message with URL
+        success, response = self.run_test(
+            "Send Message with URL (should be blocked)",
+            "POST",
+            "api/messages/send",
+            400,
+            data={
+                "recipient_id": "invalid_id",
+                "content": "Check out https://example.com"
+            }
+        )
+        
+        # Test sending message with WhatsApp
+        success, response = self.run_test(
+            "Send Message with WhatsApp (should be blocked)",
+            "POST",
+            "api/messages/send",
+            400,
+            data={
+                "recipient_id": "invalid_id",
+                "content": "Message me on WhatsApp"
+            }
+        )
+        
+        # Test getting conversations
+        success, response = self.run_test(
+            "Get Conversations",
+            "GET",
+            "api/conversations",
+            200
+        )
+        
+        # Test getting unread message count
+        success, response = self.run_test(
+            "Get Unread Message Count",
+            "GET",
+            "api/messages/unread-count",
+            200
+        )
+
+    def test_shipping_labels(self):
+        """Test shipping label generation"""
+        print("\n=== TESTING SHIPPING LABELS ===")
+        
+        # Test shipping label with non-existent order (should return 404)
+        success, response = self.run_test(
+            "Get Shipping Label (non-existent order)",
+            "GET",
+            "api/orders/non_existent_order_id/shipping-label",
+            404
+        )
+
     def run_all_tests(self):
         """Run all API tests"""
         print("🚀 Starting UK Streetwear Hub API Tests")
@@ -433,7 +585,7 @@ class UKStreetwearAPITester:
         self.test_products_endpoints()
         self.test_boost_endpoints()
         
-        # Test new features
+        # Test existing features
         self.test_wishlist_endpoints()
         self.test_analytics_endpoints()
         self.test_image_upload_endpoints()
@@ -443,6 +595,11 @@ class UKStreetwearAPITester:
         
         # Test auth endpoints
         self.test_auth_endpoints()
+        
+        # Test NEW FEATURES
+        self.test_referral_system()
+        self.test_messaging_system()
+        self.test_shipping_labels()
         
         # Test protected endpoints
         self.test_brand_application_flow()

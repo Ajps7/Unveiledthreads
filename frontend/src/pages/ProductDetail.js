@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, MapPin, Instagram, ShoppingBag, Loader2, Star, Truck } from 'lucide-react';
+import { ArrowLeft, MapPin, Instagram, ShoppingBag, Loader2, Star, Truck, MessageSquare } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import Header from '../components/Header';
 
@@ -216,11 +216,18 @@ export default function ProductDetail() {
               {product.stock > 0 ? <span className="text-[#39FF14]">{product.stock} in stock</span> : <span className="text-red-400">Out of stock</span>}
             </p>
 
-            <div className="flex gap-4 mb-8">
+            <div className="flex gap-4 mb-4">
               <Button className="btn-primary flex-1" disabled={product.stock === 0 || !selectedSize || purchasing} onClick={handlePurchase} data-testid="buy-now-button">
                 {purchasing ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</> : <><ShoppingBag className="w-5 h-5 mr-2" /> BUY NOW — £{totalPrice.toFixed(2)}</>}
               </Button>
             </div>
+            {product.brand && user && (
+              <Link to={`/messages?to=${product.brand.user_id}`}>
+                <Button className="btn-secondary w-full mb-4" data-testid="message-brand-button">
+                  <MessageSquare className="w-4 h-4 mr-2" /> Message {product.brand.brand_name}
+                </Button>
+              </Link>
+            )}
 
             {/* Brand Card */}
             {product.brand && (

@@ -18,6 +18,8 @@ import BoostSuccess from "./pages/BoostSuccess";
 import OrderSuccess from "./pages/OrderSuccess";
 import MyOrders from "./pages/MyOrders";
 import Wishlist from "./pages/Wishlist";
+import Referrals from "./pages/Referrals";
+import Messages from "./pages/Messages";
 import AdminDashboard from "./pages/AdminDashboard";
 
 function App() {
@@ -41,6 +43,8 @@ function App() {
             <Route path="/order/success" element={<OrderSuccess />} />
             <Route path="/orders" element={<MyOrders />} />
             <Route path="/wishlist" element={<Wishlist />} />
+            <Route path="/referrals" element={<Referrals />} />
+            <Route path="/messages" element={<Messages />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
         </BrowserRouter>

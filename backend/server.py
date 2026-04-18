@@ -184,6 +184,34 @@ UK_COURIERS = ["Royal Mail", "Evri", "DPD", "Yodel", "UPS", "FedEx", "Hermes", "
 
 SHIPPING_STATUSES = ["confirmed", "processing", "shipped", "in_transit", "out_for_delivery", "delivered"]
 
+class MessageSend(BaseModel):
+    recipient_id: str
+    content: str
+    order_id: Optional[str] = None
+
+REFERRAL_CREDIT = 5.0  # £5 credit
+
+# Forbidden content patterns for message surveillance
+import re
+FORBIDDEN_PATTERNS = [
+    r'\b(?:phone|phone\s*number|call\s*me|ring\s*me)\b',
+    r'\b(?:email|e-mail|gmail|hotmail|yahoo|outlook)\b',
+    r'\b(?:paypal|venmo|cash\s*app|bank\s*transfer|zelle)\b',
+    r'\b(?:direct|off\s*platform|outside)\b',
+    r'(?:https?://|www\.)\S+',
+    r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+    r'\b(?:07\d{9}|(?:\+44)\s*\d{10,})\b',
+    r'\b(?:whatsapp|telegram|signal|snapchat|discord)\b',
+]
+
+def scan_message(content: str) -> Optional[str]:
+    """Scan message for forbidden content. Returns warning if found, None if clean."""
+    text = content.lower()
+    for pattern in FORBIDDEN_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return "Message contains content that isn't allowed. Please keep all transactions on Unveiled Threads for your protection."
+    return None
+
 # ============ OBJECT STORAGE HELPERS ============
 
 def init_storage():
@@ -1784,6 +1812,286 @@ async def get_brand_analytics(request: Request, days: int = 30):
         "conversion_rate": round((total_orders / total_views * 100), 2) if total_views > 0 else 0
     }
 
+# ============ REFERRAL SYSTEM ============
+
+@api_router.get("/referral/code")
+async def get_referral_code(request: Request):
+    user = await get_current_user(request)
+    
+    # Check if user already has a referral code
+    existing = await db.referrals.find_one({"user_id": user["id"]})
+    if existing:
+        code = existing["code"]
+    else:
+        code = f"UT-{user['name'][:3].upper()}-{str(uuid.uuid4())[:6].upper()}"
+        await db.referrals.insert_one({
+            "user_id": user["id"],
+            "code": code,
+            "referred_users": [],
+            "credits_earned": 0,
+            "credits_used": 0,
+            "created_at": datetime.now(timezone.utc)
+        })
+    
+    return {"code": code, "credit_value": REFERRAL_CREDIT}
+
+@api_router.post("/referral/apply")
+async def apply_referral_code(request: Request):
+    user = await get_current_user(request)
+    data = await request.json()
+    code = data.get("code", "").strip()
+    
+    if not code:
+        raise HTTPException(status_code=400, detail="Referral code required")
+    
+    # Check if user already used a referral
+    already_referred = await db.referral_uses.find_one({"user_id": user["id"]})
+    if already_referred:
+        raise HTTPException(status_code=400, detail="You've already used a referral code")
+    
+    # Find referral
+    referral = await db.referrals.find_one({"code": code})
+    if not referral:
+        raise HTTPException(status_code=404, detail="Invalid referral code")
+    if referral["user_id"] == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot use your own referral code")
+    
+    # Mark as referred
+    await db.referral_uses.insert_one({
+        "user_id": user["id"],
+        "referrer_id": referral["user_id"],
+        "code": code,
+        "credit_pending": True,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message": f"Referral code applied! The referrer will earn £{REFERRAL_CREDIT:.2f} credit after your first purchase."}
+
+@api_router.get("/referral/credits")
+async def get_referral_credits(request: Request):
+    user = await get_current_user(request)
+    
+    referral = await db.referrals.find_one({"user_id": user["id"]})
+    if not referral:
+        return {"credits_available": 0, "credits_earned": 0, "credits_used": 0, "referred_count": 0}
+    
+    return {
+        "credits_available": round(referral.get("credits_earned", 0) - referral.get("credits_used", 0), 2),
+        "credits_earned": referral.get("credits_earned", 0),
+        "credits_used": referral.get("credits_used", 0),
+        "referred_count": len(referral.get("referred_users", []))
+    }
+
+@api_router.get("/referral/share-links")
+async def get_share_links(request: Request):
+    user = await get_current_user(request)
+    
+    referral = await db.referrals.find_one({"user_id": user["id"]})
+    if not referral:
+        # Auto-create
+        code = f"UT-{user['name'][:3].upper()}-{str(uuid.uuid4())[:6].upper()}"
+        await db.referrals.insert_one({
+            "user_id": user["id"],
+            "code": code,
+            "referred_users": [],
+            "credits_earned": 0,
+            "credits_used": 0,
+            "created_at": datetime.now(timezone.utc)
+        })
+    else:
+        code = referral["code"]
+    
+    frontend_url = os.environ.get("FRONTEND_URL", "")
+    ref_link = f"{frontend_url}?ref={code}"
+    text = f"Check out Unveiled Threads — UK's marketplace for independent streetwear brands! Use my code {code} to join."
+    
+    return {
+        "code": code,
+        "link": ref_link,
+        "twitter": f"https://twitter.com/intent/tweet?text={text}&url={ref_link}",
+        "whatsapp": f"https://wa.me/?text={text} {ref_link}",
+    }
+
+# ============ MESSAGING ============
+
+@api_router.get("/conversations")
+async def get_conversations(request: Request):
+    user = await get_current_user(request)
+    
+    convos = await db.conversations.find({
+        "$or": [{"participant_1": user["id"]}, {"participant_2": user["id"]}]
+    }).sort("last_message_at", -1).to_list(50)
+    
+    result = []
+    for c in convos:
+        c["id"] = str(c["_id"])
+        del c["_id"]
+        # Get other participant info
+        other_id = c["participant_2"] if c["participant_1"] == user["id"] else c["participant_1"]
+        other_user = await db.users.find_one({"_id": ObjectId(other_id)}, {"_id": 0, "password_hash": 0})
+        c["other_user"] = other_user
+        # Get brand name if other is a brand
+        brand = await db.brands.find_one({"user_id": other_id})
+        c["other_brand_name"] = brand["brand_name"] if brand else None
+        result.append(c)
+    
+    return result
+
+@api_router.get("/conversations/{conversation_id}/messages")
+async def get_messages(conversation_id: str, request: Request):
+    user = await get_current_user(request)
+    
+    convo = await db.conversations.find_one({"_id": ObjectId(conversation_id)})
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if user["id"] not in [convo["participant_1"], convo["participant_2"]]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    messages = await db.messages.find({"conversation_id": conversation_id}).sort("created_at", 1).to_list(200)
+    
+    result = []
+    for m in messages:
+        m["id"] = str(m["_id"])
+        del m["_id"]
+        result.append(m)
+    
+    # Mark messages from other user as read
+    other_id = convo["participant_2"] if convo["participant_1"] == user["id"] else convo["participant_1"]
+    await db.messages.update_many(
+        {"conversation_id": conversation_id, "sender_id": other_id, "read": False},
+        {"$set": {"read": True}}
+    )
+    
+    return result
+
+@api_router.post("/messages/send")
+async def send_message(msg: MessageSend, request: Request):
+    user = await get_current_user(request)
+    
+    if user["id"] == msg.recipient_id:
+        raise HTTPException(status_code=400, detail="Cannot message yourself")
+    
+    # Scan message for forbidden content
+    warning = scan_message(msg.content)
+    if warning:
+        raise HTTPException(status_code=400, detail=warning)
+    
+    # Check recipient exists
+    recipient = await db.users.find_one({"_id": ObjectId(msg.recipient_id)})
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    
+    # Find or create conversation
+    convo = await db.conversations.find_one({
+        "$or": [
+            {"participant_1": user["id"], "participant_2": msg.recipient_id},
+            {"participant_1": msg.recipient_id, "participant_2": user["id"]}
+        ]
+    })
+    
+    now = datetime.now(timezone.utc)
+    
+    if not convo:
+        convo_result = await db.conversations.insert_one({
+            "participant_1": user["id"],
+            "participant_2": msg.recipient_id,
+            "order_id": msg.order_id,
+            "last_message": msg.content[:100],
+            "last_message_at": now,
+            "created_at": now
+        })
+        conversation_id = str(convo_result.inserted_id)
+    else:
+        conversation_id = str(convo["_id"])
+        await db.conversations.update_one(
+            {"_id": convo["_id"]},
+            {"$set": {"last_message": msg.content[:100], "last_message_at": now}}
+        )
+    
+    # Insert message
+    msg_doc = {
+        "conversation_id": conversation_id,
+        "sender_id": user["id"],
+        "sender_name": user["name"],
+        "content": msg.content,
+        "flagged": False,
+        "read": False,
+        "created_at": now
+    }
+    result = await db.messages.insert_one(msg_doc)
+    
+    # Notify recipient
+    await create_notification(
+        user_id=msg.recipient_id,
+        brand_id=None,
+        notification_type="new_message",
+        title=f"New message from {user['name']}",
+        message=msg.content[:100],
+        metadata={"conversation_id": conversation_id}
+    )
+    
+    msg_doc.pop("_id", None)
+    msg_doc["id"] = str(result.inserted_id)
+    return msg_doc
+
+@api_router.get("/messages/unread-count")
+async def get_unread_message_count(request: Request):
+    user = await get_current_user(request)
+    
+    # Get all conversation IDs for this user
+    convos = await db.conversations.find({
+        "$or": [{"participant_1": user["id"]}, {"participant_2": user["id"]}]
+    }, {"_id": 1}).to_list(100)
+    
+    convo_ids = [str(c["_id"]) for c in convos]
+    if not convo_ids:
+        return {"count": 0}
+    
+    count = await db.messages.count_documents({
+        "conversation_id": {"$in": convo_ids},
+        "sender_id": {"$ne": user["id"]},
+        "read": False
+    })
+    return {"count": count}
+
+# ============ SHIPPING LABELS ============
+
+@api_router.get("/orders/{order_id}/shipping-label")
+async def get_shipping_label(order_id: str, request: Request):
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    order = await db.orders.find_one({"_id": ObjectId(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["brand_id"] != str(brand["_id"]):
+        raise HTTPException(status_code=403, detail="Not your order")
+    
+    # Get buyer info
+    buyer = await db.users.find_one({"_id": ObjectId(order["buyer_id"])})
+    
+    label_data = {
+        "order_id": order_id,
+        "from": {
+            "name": brand["brand_name"],
+            "location": brand.get("location", "UK"),
+        },
+        "to": {
+            "name": buyer["name"] if buyer else "Customer",
+            "email": buyer["email"] if buyer else "",
+        },
+        "product": order["product_name"],
+        "size": order["size"],
+        "courier": order.get("courier", ""),
+        "tracking_number": order.get("tracking_number", ""),
+        "date": datetime.now(timezone.utc).strftime("%d/%m/%Y"),
+        "weight": "Estimated: 0.5kg",
+    }
+    
+    return label_data
+
 # ============ SEED DATA ============
 
 async def seed_admin():
@@ -1977,6 +2285,12 @@ async def startup_event():
     await db.reviews.create_index("product_id")
     await db.reviews.create_index("brand_id")
     await db.reviews.create_index("order_id", unique=True)
+    await db.referrals.create_index("user_id", unique=True)
+    await db.referrals.create_index("code", unique=True)
+    await db.referral_uses.create_index("user_id", unique=True)
+    await db.conversations.create_index([("participant_1", 1), ("participant_2", 1)])
+    await db.messages.create_index("conversation_id")
+    await db.messages.create_index("sender_id")
     
     # Init object storage
     try:
