@@ -44,7 +44,7 @@ const UK_LOCATIONS = [
 ];
 
 export default function BrandApplication() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -135,7 +135,7 @@ export default function BrandApplication() {
           </p>
         </div>
 
-        {!user && (
+        {!authLoading && !user && (
           <div className="bg-[#39FF14]/10 border border-[#39FF14]/30 p-6 mb-8 flex items-start gap-4">
             <AlertCircle className="w-5 h-5 text-[#39FF14] flex-shrink-0 mt-0.5" />
             <div>
@@ -274,7 +274,7 @@ export default function BrandApplication() {
             <Button
               type="submit"
               className="btn-primary w-full"
-              disabled={loading || !user}
+              disabled={loading || authLoading || !user}
               data-testid="submit-application-button"
             >
               {loading ? 'Submitting...' : 'Submit Application'}
