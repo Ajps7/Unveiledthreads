@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { Search, MapPin, Zap } from 'lucide-react';
+import { Search, MapPin, Zap, Crown, ArrowRight } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import Header from '../components/Header';
@@ -11,17 +11,22 @@ const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function Brands() {
   const [brands, setBrands] = useState([]);
+  const [brandOfWeek, setBrandOfWeek] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchBrands();
+    fetchData();
   }, []);
 
-  const fetchBrands = async () => {
+  const fetchData = async () => {
     try {
-      const response = await axios.get(`${API}/api/brands`);
-      setBrands(response.data);
+      const [brandsRes, bowRes] = await Promise.all([
+        axios.get(`${API}/api/brands`),
+        axios.get(`${API}/api/brands/brand-of-week`).catch(() => ({ data: null }))
+      ]);
+      setBrands(brandsRes.data);
+      setBrandOfWeek(bowRes.data);
     } catch (error) {
       console.error('Error fetching brands:', error);
     } finally {
@@ -72,6 +77,58 @@ export default function Brands() {
           </div>
         </div>
       </section>
+
+      {/* Brand of the Week */}
+      {brandOfWeek && (
+        <section className="py-16 px-6 md:px-12 border-b border-white/10">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-3 mb-8">
+              <Crown className="w-6 h-6 text-[#39FF14]" />
+              <span className="text-xs uppercase tracking-[0.2em] text-[#39FF14]">Brand of the Week</span>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <h2
+                  className="text-3xl md:text-5xl font-black tracking-tighter uppercase mb-4 text-white"
+                  style={{ fontFamily: 'Clash Display, sans-serif' }}
+                  data-testid="brands-bow-name"
+                >
+                  {brandOfWeek.brand_name}
+                </h2>
+                <p className="text-[#9CA3AF] text-base mb-6 leading-relaxed">
+                  {brandOfWeek.description}
+                </p>
+                <div className="flex flex-wrap gap-3 mb-6">
+                  <span className="badge-boost">{brandOfWeek.location}</span>
+                  <span className="badge-category">{brandOfWeek.category}</span>
+                  {brandOfWeek.instagram_handle && (
+                    <span className="badge-category">{brandOfWeek.instagram_handle}</span>
+                  )}
+                </div>
+                <Link to={`/brands/${brandOfWeek.id}`}>
+                  <Button className="btn-primary" data-testid="brands-bow-button">
+                    VIEW COLLECTION <ArrowRight className="ml-2 w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
+
+              <div className="relative">
+                <div className="aspect-[4/5] overflow-hidden border border-white/10">
+                  <img
+                    src={brandOfWeek.banner_url || "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85"}
+                    alt={brandOfWeek.brand_name}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+                <div className="absolute -bottom-4 -right-4 bg-[#39FF14] text-black font-bold uppercase tracking-wide px-6 py-3 text-sm">
+                  Featured
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Boosted Brands */}
       {boostedBrands.length > 0 && (
