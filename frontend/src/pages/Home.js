@@ -73,6 +73,58 @@ export default function Home() {
     <div className="min-h-screen bg-[#050505]">
       <Header />
 
+      {/* Brand of the Week - FIRST for logged-in users */}
+      {user && brandOfWeek && (
+        <section className="py-20 px-6 md:px-12 border-b border-white/10">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-3 mb-8">
+              <Crown className="w-6 h-6 text-[#39FF14]" />
+              <span className="text-xs uppercase tracking-[0.2em] text-[#39FF14]">Brand of the Week</span>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <h2 
+                  className="text-4xl md:text-6xl font-black tracking-tighter uppercase mb-6 text-white"
+                  style={{ fontFamily: 'Clash Display, sans-serif' }}
+                  data-testid="brand-of-week-name"
+                >
+                  {brandOfWeek.brand_name}
+                </h2>
+                <p className="text-[#9CA3AF] text-lg mb-6 leading-relaxed">
+                  {brandOfWeek.description}
+                </p>
+                <div className="flex flex-wrap gap-4 mb-8">
+                  <span className="badge-boost">{brandOfWeek.location}</span>
+                  <span className="badge-category">{brandOfWeek.category}</span>
+                  {brandOfWeek.instagram_handle && (
+                    <span className="badge-category">{brandOfWeek.instagram_handle}</span>
+                  )}
+                </div>
+                <Link to={`/brands/${brandOfWeek.id}`}>
+                  <Button className="btn-primary" data-testid="view-brand-of-week-button">
+                    VIEW COLLECTION <ArrowRight className="ml-2 w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
+
+              <div className="relative">
+                <div className="aspect-[4/5] overflow-hidden border border-white/10">
+                  <img
+                    src={brandOfWeek.banner_url || "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85"}
+                    alt={brandOfWeek.brand_name}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+                <div className="absolute -bottom-4 -right-4 bg-[#39FF14] text-black font-bold uppercase tracking-wide px-6 py-3 text-sm">
+                  Featured
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Hero Section */}
       <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
         <div className="absolute inset-0">
@@ -146,8 +198,8 @@ export default function Home() {
         </Marquee>
       </div>
 
-      {/* Brand of the Week */}
-      {brandOfWeek && (
+      {/* Brand of the Week - for non-logged-in users (logged-in users see it above hero) */}
+      {!user && brandOfWeek && (
         <section className="py-24 px-6 md:px-12 border-b border-white/10">
           <div className="max-w-7xl mx-auto">
             <div className="flex items-center gap-3 mb-8">
