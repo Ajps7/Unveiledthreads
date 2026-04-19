@@ -20,6 +20,7 @@ import MyOrders from "./pages/MyOrders";
 import Wishlist from "./pages/Wishlist";
 import Referrals from "./pages/Referrals";
 import Messages from "./pages/Messages";
+import Notifications from "./pages/Notifications";
 import AdminDashboard from "./pages/AdminDashboard";
 
 function App() {
@@ -45,6 +46,7 @@ function App() {
             <Route path="/wishlist" element={<Wishlist />} />
             <Route path="/referrals" element={<Referrals />} />
             <Route path="/messages" element={<Messages />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
         </BrowserRouter>
