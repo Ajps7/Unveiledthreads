@@ -14,6 +14,8 @@ import BrandProfile from "./pages/BrandProfile";
 import BrandApplication from "./pages/BrandApplication";
 import BrandDashboard from "./pages/BrandDashboard";
 import BrandAnalytics from "./pages/BrandAnalytics";
+import AddProduct from "./pages/AddProduct";
+import MyListings from "./pages/MyListings";
 import BoostSuccess from "./pages/BoostSuccess";
 import OrderSuccess from "./pages/OrderSuccess";
 import MyOrders from "./pages/MyOrders";
@@ -38,7 +40,8 @@ function App() {
             <Route path="/brands/:id" element={<BrandProfile />} />
             <Route path="/apply" element={<BrandApplication />} />
             <Route path="/brand/dashboard" element={<BrandDashboard />} />
-            <Route path="/brand/products" element={<BrandDashboard />} />
+            <Route path="/brand/products" element={<MyListings />} />
+            <Route path="/brand/add-product" element={<AddProduct />} />
             <Route path="/brand/analytics" element={<BrandAnalytics />} />
             <Route path="/boost/success" element={<BoostSuccess />} />
             <Route path="/order/success" element={<OrderSuccess />} />

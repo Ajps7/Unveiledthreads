@@ -289,140 +289,18 @@ export default function BrandDashboard() {
                 View Profile
               </Button>
             </Link>
-            <Dialog open={addProductOpen} onOpenChange={setAddProductOpen}>
-              <DialogTrigger asChild>
-                <Button className="btn-primary" data-testid="add-product-button">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Product
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="bg-[#0F0F0F] border-white/10 rounded-none max-w-lg">
-                <DialogHeader>
-                  <DialogTitle className="text-xl font-bold text-white uppercase" style={{ fontFamily: 'Clash Display, sans-serif' }}>
-                    Add New Product
-                  </DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleAddProduct} className="space-y-4 mt-4">
-                  {error && (
-                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-3 py-2 text-sm">
-                      {error}
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Name *</label>
-                    <Input
-                      value={productForm.name}
-                      onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                      className="input-brutalist"
-                      required
-                      data-testid="product-name-input"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Description *</label>
-                    <Textarea
-                      value={productForm.description}
-                      onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-                      className="input-brutalist min-h-[80px] resize-none"
-                      required
-                      data-testid="product-description-input"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Price (£) *</label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={productForm.price}
-                        onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
-                        className="input-brutalist"
-                        required
-                        data-testid="product-price-input"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Stock *</label>
-                      <Input
-                        type="number"
-                        value={productForm.stock}
-                        onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })}
-                        className="input-brutalist"
-                        required
-                        data-testid="product-stock-input"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Shipping Cost (£)</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={productForm.shipping_cost}
-                      onChange={(e) => setProductForm({ ...productForm, shipping_cost: e.target.value })}
-                      className="input-brutalist"
-                      placeholder="3.99 (0 for free shipping)"
-                      data-testid="product-shipping-input"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Category *</label>
-                    <Select 
-                      value={productForm.category} 
-                      onValueChange={(value) => setProductForm({ ...productForm, category: value })}
-                    >
-                      <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="product-category-select">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
-                        {CATEGORIES.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id} className="text-white hover:bg-white/10 rounded-none">
-                            {cat.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Sizes (comma separated)</label>
-                    <Input
-                      value={productForm.sizes}
-                      onChange={(e) => setProductForm({ ...productForm, sizes: e.target.value })}
-                      className="input-brutalist"
-                      placeholder="S, M, L, XL"
-                      data-testid="product-sizes-input"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Product Images</label>
-                    <ImageUpload
-                      multiple
-                      label="Upload Product Photos"
-                      onUpload={(urls) => setProductForm({ ...productForm, images: [...productForm.images, ...urls] })}
-                    />
-                    {productForm.images.length > 0 && (
-                      <div className="grid grid-cols-4 gap-2 mt-2">
-                        {productForm.images.map((img, i) => (
-                          <div key={i} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
-                            <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt={`Product ${i+1}`} className="w-full h-full object-cover" />
-                            <button
-                              type="button"
-                              onClick={() => setProductForm({ ...productForm, images: productForm.images.filter((_, idx) => idx !== i) })}
-                              className="absolute top-1 right-1 bg-black/70 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <Button type="submit" className="btn-primary w-full" disabled={submitting} data-testid="submit-product-button">
-                    {submitting ? 'Adding...' : 'Add Product'}
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Link to="/brand/products">
+              <Button className="btn-secondary" data-testid="my-listings-button">
+                <Package className="w-4 h-4 mr-2" />
+                My Listings
+              </Button>
+            </Link>
+            <Link to="/brand/add-product">
+              <Button className="btn-primary" data-testid="add-product-button">
+                <Plus className="w-4 h-4 mr-2" />
+                List Product
+              </Button>
+            </Link>
           </div>
         </div>
 

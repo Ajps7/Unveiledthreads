@@ -153,7 +153,7 @@ export default function Header() {
                         data-testid="my-products-link"
                       >
                         <ShoppingBag className="w-4 h-4 mr-2" />
-                        My Products
+                        My Listings
                       </DropdownMenuItem>
                     </>
                   )}
