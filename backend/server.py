@@ -273,7 +273,7 @@ def create_access_token(user_id: str, email: str) -> str:
     payload = {
         "sub": user_id, 
         "email": email, 
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=15), 
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1), 
         "type": "access"
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
@@ -359,7 +359,7 @@ async def register(user_data: UserCreate, response: Response):
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     
     return {
@@ -382,7 +382,7 @@ async def login(user_data: UserLogin, response: Response):
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     
     return {
@@ -425,7 +425,7 @@ async def refresh_token(request: Request, response: Response):
         
         user_id = str(user["_id"])
         access_token = create_access_token(user_id, user["email"])
-        response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900, path="/")
+        response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
         
         return {"message": "Token refreshed"}
     except jwt.ExpiredSignatureError:
@@ -535,11 +535,13 @@ async def approve_application(application_id: str, request: Request):
         {"$set": {"status": "approved", "approved_at": datetime.now(timezone.utc)}}
     )
     
-    # Update user role to brand
-    await db.users.update_one(
-        {"_id": ObjectId(application["user_id"])},
-        {"$set": {"role": "brand"}}
-    )
+    # Update user role to brand (but don't downgrade admins)
+    applicant = await db.users.find_one({"_id": ObjectId(application["user_id"])})
+    if applicant and applicant.get("role") != "admin":
+        await db.users.update_one(
+            {"_id": ObjectId(application["user_id"])},
+            {"$set": {"role": "brand"}}
+        )
     
     # Create brand profile
     brand_doc = {
@@ -2231,9 +2233,15 @@ async def seed_admin():
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one(
             {"email": admin_email},
-            {"$set": {"password_hash": hash_password(admin_password)}}
+            {"$set": {"password_hash": hash_password(admin_password), "role": "admin"}}
         )
         logger.info("Admin password updated")
+    elif existing.get("role") != "admin":
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"role": "admin"}}
+        )
+        logger.info("Admin role restored")
 
 async def seed_demo_data():
     # Check if we already have demo data

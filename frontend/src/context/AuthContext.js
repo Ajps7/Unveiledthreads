@@ -9,12 +9,51 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Set up axios interceptor for automatic token refresh
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+        if (
+          error.response?.status === 401 &&
+          !originalRequest._retry &&
+          !originalRequest.url.includes('/auth/refresh') &&
+          !originalRequest.url.includes('/auth/login') &&
+          !originalRequest.url.includes('/auth/me')
+        ) {
+          originalRequest._retry = true;
+          try {
+            await axios.post(`${API}/api/auth/refresh`, {}, { withCredentials: true });
+            return axios(originalRequest);
+          } catch (refreshError) {
+            setUser(false);
+            return Promise.reject(refreshError);
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => axios.interceptors.response.eject(interceptor);
+  }, []);
+
   const checkAuth = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/api/auth/me`, { withCredentials: true });
       setUser(response.data);
     } catch (error) {
-      setUser(false);
+      // Access token may be expired — try refreshing
+      if (error.response?.status === 401) {
+        try {
+          await axios.post(`${API}/api/auth/refresh`, {}, { withCredentials: true });
+          const retryResponse = await axios.get(`${API}/api/auth/me`, { withCredentials: true });
+          setUser(retryResponse.data);
+        } catch (refreshError) {
+          setUser(false);
+        }
+      } else {
+        setUser(false);
+      }
     } finally {
       setLoading(false);
     }
