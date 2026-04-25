@@ -121,6 +121,18 @@ class ProductCreate(BaseModel):
     images: List[str]
     stock: int = 0
     shipping_cost: float = 3.99
+    colour: Optional[str] = None
+    material: Optional[str] = None
+    gender: str = "unisex"
+    condition: str = "new"
+    fit: Optional[str] = None
+
+COLOURS = ["Black", "White", "Grey", "Navy", "Green", "Olive", "Brown", "Beige", "Cream", "Red", "Blue", "Purple", "Orange", "Yellow", "Pink", "Multi"]
+MATERIALS = ["Cotton", "Organic Cotton", "Polyester", "Nylon", "Fleece", "Denim", "Leather", "Wool", "Linen", "Canvas", "Corduroy", "Mesh", "Mixed"]
+GENDERS = ["unisex", "mens", "womens"]
+CONDITIONS = ["new", "like_new", "used"]
+FITS = ["Oversized", "Regular", "Slim", "Relaxed", "Cropped", "Boxy"]
+SORT_OPTIONS = ["latest", "price_low", "price_high", "popular"]
 
 class ProductResponse(BaseModel):
     id: str
@@ -744,6 +756,11 @@ async def create_product(product: ProductCreate, request: Request):
         "images": product.images,
         "stock": product.stock,
         "shipping_cost": product.shipping_cost,
+        "colour": product.colour,
+        "material": product.material,
+        "gender": product.gender,
+        "condition": product.condition,
+        "fit": product.fit,
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.products.insert_one(product_doc)
@@ -761,12 +778,21 @@ async def get_products(
     search: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    size: Optional[str] = None,
+    colour: Optional[str] = None,
+    material: Optional[str] = None,
+    gender: Optional[str] = None,
+    condition: Optional[str] = None,
+    fit: Optional[str] = None,
+    sort: str = "latest",
+    in_stock: Optional[bool] = None,
+    free_shipping: Optional[bool] = None,
     limit: int = 50,
     skip: int = 0
 ):
     query = {}
     
-    if category:
+    if category and category != "all":
         query["category"] = category
     if brand_id:
         query["brand_id"] = brand_id
@@ -774,14 +800,44 @@ async def get_products(
         query["price"] = {"$gte": min_price}
     if max_price is not None:
         query.setdefault("price", {})["$lte"] = max_price
+    if size:
+        query["sizes"] = size
+    if colour:
+        query["colour"] = {"$regex": colour, "$options": "i"}
+    if material:
+        query["material"] = {"$regex": material, "$options": "i"}
+    if gender and gender != "all":
+        query["gender"] = gender
+    if condition and condition != "all":
+        query["condition"] = condition
+    if fit:
+        query["fit"] = {"$regex": fit, "$options": "i"}
+    if in_stock:
+        query["stock"] = {"$gt": 0}
+    if free_shipping:
+        query["$or"] = query.get("$or", [])
+        query.setdefault("shipping_cost", {})["$lte"] = 0
     if search:
-        query["$or"] = [
+        search_filter = [
             {"name": {"$regex": search, "$options": "i"}},
             {"description": {"$regex": search, "$options": "i"}},
             {"brand_name": {"$regex": search, "$options": "i"}}
         ]
+        if "$or" in query:
+            query["$and"] = [{"$or": query.pop("$or")}, {"$or": search_filter}]
+        else:
+            query["$or"] = search_filter
     
-    products = await db.products.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    # Sort
+    sort_map = {
+        "latest": ("created_at", -1),
+        "price_low": ("price", 1),
+        "price_high": ("price", -1),
+        "popular": ("created_at", -1),
+    }
+    sort_field, sort_dir = sort_map.get(sort, ("created_at", -1))
+    
+    products = await db.products.find(query).sort(sort_field, sort_dir).skip(skip).limit(limit).to_list(limit)
     
     result = []
     for product in products:
@@ -790,6 +846,19 @@ async def get_products(
         result.append(product)
     
     return result
+
+@api_router.get("/products/filter-options")
+async def get_filter_options():
+    """Return available filter values based on existing products"""
+    return {
+        "colours": COLOURS,
+        "materials": MATERIALS,
+        "genders": [{"id": "all", "name": "All"}, {"id": "unisex", "name": "Unisex"}, {"id": "mens", "name": "Mens"}, {"id": "womens", "name": "Womens"}],
+        "conditions": [{"id": "all", "name": "All"}, {"id": "new", "name": "New"}, {"id": "like_new", "name": "Like New"}, {"id": "used", "name": "Used"}],
+        "fits": FITS,
+        "sizes": ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "One Size"],
+        "sort_options": [{"id": "latest", "name": "Latest"}, {"id": "price_low", "name": "Price: Low → High"}, {"id": "price_high", "name": "Price: High → Low"}, {"id": "popular", "name": "Popular"}],
+    }
 
 @api_router.get("/products/{product_id}")
 async def get_product(product_id: str):
@@ -823,7 +892,7 @@ async def update_product(product_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Not authorized to edit this product")
     
     update_fields = {}
-    allowed_fields = ["name", "description", "price", "category", "sizes", "images", "stock"]
+    allowed_fields = ["name", "description", "price", "category", "sizes", "images", "stock", "shipping_cost", "colour", "material", "gender", "condition", "fit"]
     for field in allowed_fields:
         if field in data:
             update_fields[field] = data[field]

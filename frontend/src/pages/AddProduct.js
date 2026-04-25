@@ -30,6 +30,9 @@ const CATEGORIES = [
 ];
 
 const ALL_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'One Size'];
+const COLOURS = ["Black", "White", "Grey", "Navy", "Green", "Olive", "Brown", "Beige", "Cream", "Red", "Blue", "Purple", "Orange", "Yellow", "Pink", "Multi"];
+const MATERIALS = ["Cotton", "Organic Cotton", "Polyester", "Nylon", "Fleece", "Denim", "Leather", "Wool", "Linen", "Canvas", "Corduroy", "Mesh", "Mixed"];
+const FITS = ["Oversized", "Regular", "Slim", "Relaxed", "Cropped", "Boxy"];
 
 export default function AddProduct() {
   const { user, loading: authLoading } = useAuth();
@@ -46,6 +49,11 @@ export default function AddProduct() {
     stock: '',
     images: [],
     sizes: [],
+    colour: '',
+    material: '',
+    gender: 'unisex',
+    condition: 'new',
+    fit: '',
   });
 
   useEffect(() => {
@@ -94,6 +102,11 @@ export default function AddProduct() {
         sizes: form.sizes,
         images: form.images,
         stock: parseInt(form.stock),
+        colour: form.colour || null,
+        material: form.material || null,
+        gender: form.gender,
+        condition: form.condition,
+        fit: form.fit || null,
       }, { withCredentials: true });
 
       navigate('/brand/dashboard');
@@ -222,6 +235,78 @@ export default function AddProduct() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Colour */}
+              <div>
+                <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">Colour</label>
+                <div className="flex flex-wrap gap-2">
+                  {COLOURS.map((c) => (
+                    <button key={c} type="button" onClick={() => setForm({ ...form, colour: form.colour === c ? '' : c })}
+                      className={`px-3 py-1.5 text-xs border transition-all ${form.colour === c ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-[#9CA3AF] hover:border-white/40'}`}
+                      data-testid={`colour-${c}`}
+                    >{c}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Material */}
+              <div>
+                <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">Material</label>
+                <Select value={form.material} onValueChange={(value) => setForm({ ...form, material: value })}>
+                  <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="product-material-select">
+                    <SelectValue placeholder="Select material" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+                    {MATERIALS.map((m) => (
+                      <SelectItem key={m} value={m} className="text-white hover:bg-white/10 rounded-none">{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Gender & Condition & Fit */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">Gender</label>
+                  <Select value={form.gender} onValueChange={(value) => setForm({ ...form, gender: value })}>
+                    <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="product-gender-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+                      <SelectItem value="unisex" className="text-white hover:bg-white/10 rounded-none">Unisex</SelectItem>
+                      <SelectItem value="mens" className="text-white hover:bg-white/10 rounded-none">Mens</SelectItem>
+                      <SelectItem value="womens" className="text-white hover:bg-white/10 rounded-none">Womens</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">Condition</label>
+                  <Select value={form.condition} onValueChange={(value) => setForm({ ...form, condition: value })}>
+                    <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="product-condition-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+                      <SelectItem value="new" className="text-white hover:bg-white/10 rounded-none">New</SelectItem>
+                      <SelectItem value="like_new" className="text-white hover:bg-white/10 rounded-none">Like New</SelectItem>
+                      <SelectItem value="used" className="text-white hover:bg-white/10 rounded-none">Used</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">Fit</label>
+                  <Select value={form.fit || 'none'} onValueChange={(value) => setForm({ ...form, fit: value === 'none' ? '' : value })}>
+                    <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="product-fit-select">
+                      <SelectValue placeholder="Select fit" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+                      <SelectItem value="none" className="text-white hover:bg-white/10 rounded-none">Not specified</SelectItem>
+                      {FITS.map((f) => (
+                        <SelectItem key={f} value={f} className="text-white hover:bg-white/10 rounded-none">{f}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
           </div>
