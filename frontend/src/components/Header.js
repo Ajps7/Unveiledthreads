@@ -76,6 +76,13 @@ export default function Header() {
               Brands
             </Link>
             <Link 
+              to="/community" 
+              className="text-sm text-[#C0C0C0] hover:text-white transition-colors uppercase tracking-wider"
+              data-testid="nav-community"
+            >
+              Community
+            </Link>
+            <Link 
               to={user && (user.role === 'brand' || user.role === 'admin') ? '/brand/products' : '/apply'}
               className="text-sm text-[#39FF14] hover:text-white transition-colors uppercase tracking-wider"
               data-testid="nav-apply"
@@ -258,6 +265,13 @@ export default function Header() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Brands
+              </Link>
+              <Link 
+                to="/community" 
+                className="text-sm text-[#C0C0C0] hover:text-white transition-colors uppercase tracking-wider py-2"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Community
               </Link>
               <Link 
                 to={user && (user.role === 'brand' || user.role === 'admin') ? '/brand/products' : '/apply'}

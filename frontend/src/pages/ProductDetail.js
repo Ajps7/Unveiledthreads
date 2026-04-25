@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, MapPin, Instagram, ShoppingBag, Loader2, Star, Truck, MessageSquare } from 'lucide-react';
+import { ArrowLeft, MapPin, Instagram, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import Header from '../components/Header';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -288,7 +289,145 @@ export default function ProductDetail() {
             <p className="text-[#9CA3AF]">No reviews yet. Be the first to review after purchasing!</p>
           )}
         </section>
+
+        {/* Product Comments Section */}
+        <ProductComments productId={id} user={user} />
       </div>
     </div>
+  );
+}
+
+function ProductComments({ productId, user }) {
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchComments();
+  }, [productId]);
+
+  const fetchComments = async () => {
+    try {
+      const res = await axios.get(`${API}/api/products/${productId}/comments`);
+      setComments(res.data);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+    setError('');
+    setSending(true);
+    try {
+      const res = await axios.post(`${API}/api/products/${productId}/comments`, { content: newComment.trim() }, { withCredentials: true });
+      setComments([res.data, ...comments]);
+      setNewComment('');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to post comment');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleLike = async (commentId) => {
+    if (!user) return;
+    try {
+      const res = await axios.post(`${API}/api/products/${productId}/comments/${commentId}/like`, {}, { withCredentials: true });
+      setComments(comments.map(c => c.id === commentId ? {
+        ...c,
+        likes: res.data.liked ? [...(c.likes || []), user.id] : (c.likes || []).filter(id => id !== user.id)
+      } : c));
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDelete = async (commentId) => {
+    try {
+      await axios.delete(`${API}/api/products/${productId}/comments/${commentId}`, { withCredentials: true });
+      setComments(comments.filter(c => c.id !== commentId));
+    } catch (e) { console.error(e); }
+  };
+
+  return (
+    <section className="mt-12 border-t border-white/10 pt-12">
+      <h2 className="text-xl md:text-2xl font-bold uppercase tracking-tight text-white mb-6" style={{ fontFamily: 'Clash Display, sans-serif' }} data-testid="product-comments-title">
+        Discussion ({comments.length})
+      </h2>
+
+      {/* Add comment */}
+      {user ? (
+        <form onSubmit={handleSend} className="flex gap-3 mb-6">
+          <div className="w-9 h-9 rounded-full bg-[#1A1A1A] border border-white/10 flex items-center justify-center text-xs text-[#39FF14] font-bold flex-shrink-0">
+            {user.name?.charAt(0)}
+          </div>
+          <div className="flex-1">
+            <Input
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              className="input-brutalist text-sm"
+              placeholder="Share your thoughts on this piece..."
+              data-testid="product-comment-input"
+            />
+            {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
+          </div>
+          <Button type="submit" className="btn-primary px-4" disabled={sending || !newComment.trim()} data-testid="product-comment-submit">
+            <Send className="w-4 h-4" />
+          </Button>
+        </form>
+      ) : (
+        <div className="mb-6 p-4 border border-white/10 bg-[#0A0A0A] text-center">
+          <Link to="/login" className="text-[#39FF14] text-sm hover:underline">Login to join the discussion</Link>
+        </div>
+      )}
+
+      {/* Comments list */}
+      {loading ? (
+        <Loader2 className="w-6 h-6 text-[#39FF14] animate-spin mx-auto" />
+      ) : comments.length === 0 ? (
+        <p className="text-[#9CA3AF] text-sm">No comments yet. Be the first to share your thoughts!</p>
+      ) : (
+        <div className="space-y-4" data-testid="product-comments-list">
+          {comments.map((c) => {
+            const isLiked = user && c.likes?.includes(user.id);
+            const isOwn = user && c.user_id === user.id;
+            const isAdmin = user && user.role === 'admin';
+
+            return (
+              <div key={c.id} className="flex gap-3" data-testid={`product-comment-${c.id}`}>
+                <div className="w-9 h-9 rounded-full bg-[#1A1A1A] border border-white/10 flex items-center justify-center text-xs text-[#39FF14] font-bold flex-shrink-0">
+                  {c.user_name?.charAt(0)}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-white text-sm font-medium">{c.user_name}</span>
+                    {c.brand_name && (
+                      <span className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 bg-[#39FF14]/10 text-[#39FF14] border border-[#39FF14]/30">Brand</span>
+                    )}
+                    <span className="text-[#9CA3AF] text-xs">{new Date(c.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-[#C0C0C0] text-sm">{c.content}</p>
+                  <div className="flex items-center gap-4 mt-2">
+                    <button
+                      onClick={() => handleLike(c.id)}
+                      className={`flex items-center gap-1 text-xs transition-colors ${isLiked ? 'text-[#39FF14]' : 'text-[#9CA3AF] hover:text-white'}`}
+                    >
+                      <ThumbsUp className={`w-3 h-3 ${isLiked ? 'fill-current' : ''}`} />
+                      {c.likes?.length || 0}
+                    </button>
+                    {(isOwn || isAdmin) && (
+                      <button onClick={() => handleDelete(c.id)} className="text-xs text-[#9CA3AF] hover:text-red-400 transition-colors">
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
