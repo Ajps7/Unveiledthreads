@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, MapPin, Globe, Zap, Crown } from 'lucide-react';
+import { ArrowLeft, MapPin, Zap, Crown } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import Header from '../components/Header';
 import ProductCard from '../components/ProductCard';
@@ -123,17 +123,6 @@ export default function BrandProfile() {
                 <MapPin className="w-4 h-4" />
                 {brand.location}
               </span>
-              {brand.website && (
-                <a 
-                  href={brand.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 hover:text-[#39FF14] transition-colors"
-                >
-                  <Globe className="w-4 h-4" />
-                  Website
-                </a>
-              )}
             </div>
           </div>
         </div>

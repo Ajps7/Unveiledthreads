@@ -239,22 +239,6 @@ export default function BrandApplication() {
             </Select>
           </div>
 
-          {/* Website */}
-          <div>
-            <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
-              Website <span className="text-[#9CA3AF] normal-case tracking-normal">(optional)</span>
-            </label>
-            <Input
-              type="url"
-              value={formData.website}
-              onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-              className="input-brutalist"
-              placeholder="https://yourbrand.com"
-              data-testid="website-input"
-            />
-            <p className="text-xs text-[#9CA3AF] mt-1">Don't have a website yet? No worries — your Unveiled Threads store will be your home.</p>
-          </div>
-
           <div className="pt-4">
             <Button
               type="submit"
