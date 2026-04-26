@@ -402,7 +402,7 @@ export default function AddProduct() {
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-white">£{parseFloat(form.price || 0).toFixed(2)}</span>
                   <span className="text-sm text-[#9CA3AF]">
-                    + £{(parseFloat(form.price || 0) * 0.10).toFixed(2)} platform fee
+                    + £{(parseFloat(form.price || 0) * 0.04).toFixed(2)} platform fee
                     {parseFloat(form.shipping_cost || 0) > 0 ? ` + £${parseFloat(form.shipping_cost).toFixed(2)} shipping` : ' + free shipping'}
                   </span>
                 </div>

@@ -66,10 +66,10 @@ export default function Terms() {
             <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>6. Pricing & Fees</h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>All prices are listed in GBP (£) and are set by the Seller.</li>
-              <li>A <span className="text-white font-medium">10% platform fee</span> is added to each transaction. This fee supports the operation and development of Unveiled Threads.</li>
+              <li>A <span className="text-white font-medium">4% platform fee</span> is added to each transaction. This fee supports the operation and development of Unveiled Threads.</li>
               <li>Shipping costs are set per product by the Seller and displayed at checkout.</li>
               <li>The total amount charged to the Buyer includes: product price + platform fee + shipping cost.</li>
-              <li>Sellers receive the product price plus shipping cost; the platform retains the 10% fee.</li>
+              <li>Sellers receive the product price plus shipping cost; the platform retains the 4% fee.</li>
             </ul>
           </section>
 

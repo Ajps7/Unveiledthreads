@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import Header from '../components/Header';
 
 const API = process.env.REACT_APP_BACKEND_URL;
-const PLATFORM_FEE_PERCENT = 10;
+const PLATFORM_FEE_PERCENT = 4;
 
 function StarRating({ rating, size = 16 }) {
   return (
