@@ -24,6 +24,7 @@ import Referrals from "./pages/Referrals";
 import Messages from "./pages/Messages";
 import Notifications from "./pages/Notifications";
 import Community from "./pages/Community";
+import Terms from "./pages/Terms";
 import AdminDashboard from "./pages/AdminDashboard";
 
 function App() {
@@ -52,6 +53,7 @@ function App() {
             <Route path="/messages" element={<Messages />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/community" element={<Community />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
         </BrowserRouter>

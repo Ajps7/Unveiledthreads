@@ -282,7 +282,7 @@ export default function BrandApplication() {
           </div>
 
           <p className="text-xs text-[#9CA3AF] text-center">
-            By submitting, you agree that your brand is UK-based and sells authentic streetwear products.
+            By submitting, you agree that your brand is UK-based, sells authentic streetwear products, and you accept our <Link to="/terms" target="_blank" className="text-[#39FF14] hover:underline">Terms & Conditions</Link>.
           </p>
         </form>
       </div>

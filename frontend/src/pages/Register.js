@@ -160,6 +160,18 @@ export default function Register() {
               />
             </div>
 
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                required
+                className="accent-[#39FF14] mt-1"
+                data-testid="terms-checkbox"
+              />
+              <span className="text-xs text-[#9CA3AF]">
+                I agree to the <Link to="/terms" target="_blank" className="text-[#39FF14] hover:underline">Terms & Conditions</Link> of Unveiled Threads
+              </span>
+            </label>
+
             <Button
               type="submit"
               className="btn-primary w-full"

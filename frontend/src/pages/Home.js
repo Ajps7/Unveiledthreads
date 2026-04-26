@@ -400,11 +400,12 @@ export default function Home() {
               <ul className="space-y-2 text-sm text-[#9CA3AF]">
                 <li><Link to="/login" className="hover:text-white transition-colors">Login</Link></li>
                 <li><Link to="/register" className="hover:text-white transition-colors">Register</Link></li>
+                <li><Link to="/terms" className="hover:text-white transition-colors">Terms & Conditions</Link></li>
               </ul>
             </div>
           </div>
           <div className="border-t border-white/10 pt-8 text-center text-sm text-[#9CA3AF]">
-            <p>© 2024 Unveiled Threads. All rights reserved.</p>
+            <p>© 2024 Unveiled Threads. All rights reserved. · <Link to="/terms" className="hover:text-white transition-colors">Terms & Conditions</Link></p>
           </div>
         </div>
       </footer>
