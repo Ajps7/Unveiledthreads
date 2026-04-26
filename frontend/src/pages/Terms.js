@@ -116,17 +116,7 @@ export default function Terms() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>11. Referral Programme</h2>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>Users may refer others using a unique referral code.</li>
-              <li>Referral credits (£5) are awarded when the referred user completes their first purchase.</li>
-              <li>Credits are non-transferable and have no cash value.</li>
-              <li>Abuse of the referral programme (e.g. self-referrals, fake accounts) will result in credit forfeiture and potential account suspension.</li>
-            </ul>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>12. Intellectual Property</h2>
+            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>11. Intellectual Property</h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>Sellers retain ownership of their brand names, logos, and product designs.</li>
               <li>By listing on Unveiled Threads, Sellers grant us a non-exclusive licence to display their content on the Platform for promotional purposes.</li>
@@ -136,7 +126,7 @@ export default function Terms() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>13. Privacy & Data</h2>
+            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>12. Privacy & Data</h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>We collect and process personal data in accordance with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.</li>
               <li>Personal data is used solely for operating the Platform, processing orders, and sending relevant notifications.</li>
@@ -146,7 +136,7 @@ export default function Terms() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>14. Limitation of Liability</h2>
+            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>13. Limitation of Liability</h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>Unveiled Threads acts as a marketplace facilitator and is not a party to transactions between Buyers and Sellers.</li>
               <li>We are not liable for the quality, safety, legality, or accuracy of items listed by Sellers.</li>
@@ -156,7 +146,7 @@ export default function Terms() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>15. Termination</h2>
+            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>14. Termination</h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>We reserve the right to suspend or terminate any account at our discretion, particularly in cases of fraud, policy violations, or abuse.</li>
               <li>Users may delete their account at any time. Outstanding orders must be fulfilled before closure.</li>
@@ -165,12 +155,12 @@ export default function Terms() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>16. Governing Law</h2>
+            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>15. Governing Law</h2>
             <p>These Terms & Conditions are governed by and construed in accordance with the laws of England and Wales. Any disputes shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>17. Changes to Terms</h2>
+            <h2 className="text-lg font-bold text-white uppercase mb-3" style={{ fontFamily: 'Clash Display, sans-serif' }}>16. Changes to Terms</h2>
             <p>We may update these Terms & Conditions from time to time. Continued use of the Platform after changes constitutes acceptance of the revised terms. We will notify registered users of significant changes via email or in-app notification.</p>
           </section>
 
