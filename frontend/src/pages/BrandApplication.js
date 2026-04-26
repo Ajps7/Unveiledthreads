@@ -239,21 +239,6 @@ export default function BrandApplication() {
             </Select>
           </div>
 
-          {/* Instagram */}
-          <div>
-            <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
-              Instagram Handle
-            </label>
-            <Input
-              type="text"
-              value={formData.instagram_handle}
-              onChange={(e) => setFormData({ ...formData, instagram_handle: e.target.value })}
-              className="input-brutalist"
-              placeholder="@yourbrand"
-              data-testid="instagram-input"
-            />
-          </div>
-
           {/* Website */}
           <div>
             <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">

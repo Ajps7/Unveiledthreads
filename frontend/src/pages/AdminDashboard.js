@@ -224,12 +224,6 @@ export default function AdminDashboard() {
                       <span>{app.location}</span>
                       <span>•</span>
                       <span className="capitalize">{app.category}</span>
-                      {app.instagram_handle && (
-                        <>
-                          <span>•</span>
-                          <span>{app.instagram_handle}</span>
-                        </>
-                      )}
                     </div>
                     {app.status === 'pending' && (
                       <div className="flex gap-2">

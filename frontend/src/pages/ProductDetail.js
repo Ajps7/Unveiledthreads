@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, MapPin, Instagram, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import Header from '../components/Header';
@@ -247,7 +247,6 @@ export default function ProductDetail() {
                     <p className="text-[#9CA3AF] text-sm line-clamp-2">{product.brand.description}</p>
                     <div className="flex items-center gap-4 mt-2 text-xs text-[#C0C0C0]">
                       <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{product.brand.location}</span>
-                      {product.brand.instagram_handle && <span className="flex items-center gap-1"><Instagram className="w-3 h-3" />{product.brand.instagram_handle}</span>}
                     </div>
                   </div>
                 </div>

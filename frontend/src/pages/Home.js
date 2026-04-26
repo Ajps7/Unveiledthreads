@@ -97,9 +97,6 @@ export default function Home() {
                 <div className="flex flex-wrap gap-4 mb-8">
                   <span className="badge-boost">{brandOfWeek.location}</span>
                   <span className="badge-category">{brandOfWeek.category}</span>
-                  {brandOfWeek.instagram_handle && (
-                    <span className="badge-category">{brandOfWeek.instagram_handle}</span>
-                  )}
                 </div>
                 <Link to={`/brands/${brandOfWeek.id}`}>
                   <Button className="btn-primary" data-testid="view-brand-of-week-button">
@@ -222,9 +219,6 @@ export default function Home() {
                 <div className="flex flex-wrap gap-4 mb-8">
                   <span className="badge-boost">{brandOfWeek.location}</span>
                   <span className="badge-category">{brandOfWeek.category}</span>
-                  {brandOfWeek.instagram_handle && (
-                    <span className="badge-category">{brandOfWeek.instagram_handle}</span>
-                  )}
                 </div>
                 <Link to={`/brands/${brandOfWeek.id}`}>
                   <Button className="btn-primary" data-testid="view-brand-of-week-button">

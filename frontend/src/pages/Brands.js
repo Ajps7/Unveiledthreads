@@ -102,9 +102,6 @@ export default function Brands() {
                 <div className="flex flex-wrap gap-3 mb-6">
                   <span className="badge-boost">{brandOfWeek.location}</span>
                   <span className="badge-category">{brandOfWeek.category}</span>
-                  {brandOfWeek.instagram_handle && (
-                    <span className="badge-category">{brandOfWeek.instagram_handle}</span>
-                  )}
                 </div>
                 <Link to={`/brands/${brandOfWeek.id}`}>
                   <Button className="btn-primary" data-testid="brands-bow-button">

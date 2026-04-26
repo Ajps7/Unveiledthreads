@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Zap, MapPin, Instagram } from 'lucide-react';
+import { Zap, MapPin } from 'lucide-react';
 
 export default function BrandCard({ brand, isBoosted = false }) {
   return (
@@ -47,12 +47,6 @@ export default function BrandCard({ brand, isBoosted = false }) {
           <MapPin className="w-3 h-3" />
           {brand.location}
         </span>
-        {brand.instagram_handle && (
-          <span className="flex items-center gap-1">
-            <Instagram className="w-3 h-3" />
-            {brand.instagram_handle}
-          </span>
-        )}
       </div>
     </Link>
   );
