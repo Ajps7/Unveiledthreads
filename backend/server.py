@@ -2508,7 +2508,7 @@ async def delete_product_comment(product_id: str, comment_id: str, request: Requ
 # ============ SEED DATA ============
 
 async def seed_admin():
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@ukstreetwear.com")
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@ukstreetwear.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
