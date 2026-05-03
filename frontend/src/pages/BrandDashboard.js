@@ -312,8 +312,14 @@ export default function BrandDashboard() {
           </div>
           <div className="border border-white/10 p-6 bg-[#0A0A0A]">
             <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-2">Status</p>
-            <p className="text-lg font-bold text-[#39FF14]">
-              {brandData.is_boosted ? 'Boosted' : 'Active'}
+            <p className="text-lg font-bold text-[#39FF14]" data-testid="brand-status">
+              {(() => {
+                if (!brandData.is_boosted) return 'Active';
+                const expiry = brandData.boosted_until ? new Date(brandData.boosted_until) : null;
+                if (!expiry || expiry <= new Date()) return 'Active';
+                const days = Math.max(1, Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24)));
+                return `Boosted · ${days}d left`;
+              })()}
             </p>
           </div>
           <div className="border border-white/10 p-6 bg-[#0A0A0A]">
@@ -493,61 +499,82 @@ export default function BrandDashboard() {
           </div>
         )}
 
-        {/* Boost Section */}
-        {!brandData.is_boosted && (
-          <div className="mb-12 border border-[#39FF14]/30 bg-[#39FF14]/5 p-6">
-            <div className="flex items-start gap-4">
-              <Zap className="w-8 h-8 text-[#39FF14] flex-shrink-0" />
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Clash Display, sans-serif' }}>
-                  BOOST YOUR BRAND
-                </h3>
-                <p className="text-[#9CA3AF] mb-4">
-                  Get featured in the Boosted Brands section and increase your visibility to thousands of streetwear enthusiasts.
-                </p>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="border border-white/10 bg-[#0A0A0A] p-4">
-                    <p className="text-lg font-bold text-white mb-1">Weekly</p>
-                    <p className="text-2xl font-bold text-[#39FF14] mb-2">£9.99</p>
-                    <p className="text-xs text-[#9CA3AF] mb-4">7 days featured</p>
-                    <Button 
-                      className="btn-secondary w-full text-sm" 
-                      onClick={() => handleBoostBrand('weekly')}
-                      data-testid="boost-weekly-button"
-                    >
-                      Select
-                    </Button>
-                  </div>
-                  <div className="border border-[#39FF14]/50 bg-[#0A0A0A] p-4 relative">
-                    <span className="absolute -top-3 left-4 bg-[#39FF14] text-black text-xs px-2 py-1 font-bold">POPULAR</span>
-                    <p className="text-lg font-bold text-white mb-1">Monthly</p>
-                    <p className="text-2xl font-bold text-[#39FF14] mb-2">£29.99</p>
-                    <p className="text-xs text-[#9CA3AF] mb-4">30 days featured</p>
-                    <Button 
-                      className="btn-primary w-full text-sm" 
-                      onClick={() => handleBoostBrand('monthly')}
-                      data-testid="boost-monthly-button"
-                    >
-                      Select
-                    </Button>
-                  </div>
-                  <div className="border border-white/10 bg-[#0A0A0A] p-4">
-                    <p className="text-lg font-bold text-white mb-1">Quarterly</p>
-                    <p className="text-2xl font-bold text-[#39FF14] mb-2">£69.99</p>
-                    <p className="text-xs text-[#9CA3AF] mb-4">90 days featured</p>
-                    <Button 
-                      className="btn-secondary w-full text-sm" 
-                      onClick={() => handleBoostBrand('quarterly')}
-                      data-testid="boost-quarterly-button"
-                    >
-                      Select
-                    </Button>
+        {/* Boost Section - always visible (supports initial boost + extend/renew) */}
+        {(() => {
+          const now = new Date();
+          const expiry = brandData.boosted_until ? new Date(brandData.boosted_until) : null;
+          const isActive = brandData.is_boosted && expiry && expiry > now;
+          const daysLeft = isActive ? Math.max(1, Math.ceil((expiry - now) / (1000 * 60 * 60 * 24))) : 0;
+          const formattedExpiry = expiry ? expiry.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+          return (
+            <div className="mb-12 border border-[#39FF14]/30 bg-[#39FF14]/5 p-6" data-testid="boost-section">
+              <div className="flex items-start gap-4">
+                <Zap className="w-8 h-8 text-[#39FF14] flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+                    {isActive ? 'EXTEND YOUR BOOST' : 'BOOST YOUR BRAND'}
+                  </h3>
+                  {isActive ? (
+                    <div className="mb-4" data-testid="boost-active-info">
+                      <p className="text-[#9CA3AF] mb-2">
+                        Your brand is currently boosted. Top up now — new purchases stack on top of your current expiry date, you won't lose a day.
+                      </p>
+                      <div className="inline-flex items-center gap-2 border border-[#39FF14]/40 bg-[#0A0A0A] px-3 py-2">
+                        <Zap className="w-4 h-4 text-[#39FF14]" />
+                        <span className="text-sm text-white">
+                          <span className="font-bold text-[#39FF14]">{daysLeft} day{daysLeft === 1 ? '' : 's'}</span> remaining · expires {formattedExpiry}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[#9CA3AF] mb-4">
+                      Get featured in the Boosted Brands section and increase your visibility to thousands of streetwear enthusiasts.
+                    </p>
+                  )}
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="border border-white/10 bg-[#0A0A0A] p-4">
+                      <p className="text-lg font-bold text-white mb-1">Weekly</p>
+                      <p className="text-2xl font-bold text-[#39FF14] mb-2">£9.99</p>
+                      <p className="text-xs text-[#9CA3AF] mb-4">{isActive ? '+7 days added' : '7 days featured'}</p>
+                      <Button
+                        className="btn-secondary w-full text-sm"
+                        onClick={() => handleBoostBrand('weekly')}
+                        data-testid="boost-weekly-button"
+                      >
+                        {isActive ? 'Extend +7 Days' : 'Select'}
+                      </Button>
+                    </div>
+                    <div className="border border-[#39FF14]/50 bg-[#0A0A0A] p-4 relative">
+                      <span className="absolute -top-3 left-4 bg-[#39FF14] text-black text-xs px-2 py-1 font-bold">POPULAR</span>
+                      <p className="text-lg font-bold text-white mb-1">Monthly</p>
+                      <p className="text-2xl font-bold text-[#39FF14] mb-2">£29.99</p>
+                      <p className="text-xs text-[#9CA3AF] mb-4">{isActive ? '+30 days added' : '30 days featured'}</p>
+                      <Button
+                        className="btn-primary w-full text-sm"
+                        onClick={() => handleBoostBrand('monthly')}
+                        data-testid="boost-monthly-button"
+                      >
+                        {isActive ? 'Extend +30 Days' : 'Select'}
+                      </Button>
+                    </div>
+                    <div className="border border-white/10 bg-[#0A0A0A] p-4">
+                      <p className="text-lg font-bold text-white mb-1">Quarterly</p>
+                      <p className="text-2xl font-bold text-[#39FF14] mb-2">£69.99</p>
+                      <p className="text-xs text-[#9CA3AF] mb-4">{isActive ? '+90 days added' : '90 days featured'}</p>
+                      <Button
+                        className="btn-secondary w-full text-sm"
+                        onClick={() => handleBoostBrand('quarterly')}
+                        data-testid="boost-quarterly-button"
+                      >
+                        {isActive ? 'Extend +90 Days' : 'Select'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Products List */}
         <div>

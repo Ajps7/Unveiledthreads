@@ -1046,7 +1046,12 @@ async def get_boost_status(session_id: str, request: Request):
         package_id = transaction["package_id"]
         package = BOOST_PACKAGES.get(package_id)
         if package:
-            boosted_until = datetime.now(timezone.utc) + timedelta(days=package["duration_days"])
+            brand_doc = await db.brands.find_one({"_id": ObjectId(transaction["brand_id"])})
+            now = datetime.now(timezone.utc)
+            current_until = brand_doc.get("boosted_until") if brand_doc else None
+            # Stack onto existing boost if it hasn't expired yet, else start from now
+            base = current_until if (current_until and current_until > now) else now
+            boosted_until = base + timedelta(days=package["duration_days"])
             await db.brands.update_one(
                 {"_id": ObjectId(transaction["brand_id"])},
                 {"$set": {"is_boosted": True, "boosted_until": boosted_until}}
@@ -1078,7 +1083,11 @@ async def stripe_webhook(request: Request):
                 package_id = event.metadata.get("package_id")
                 package = BOOST_PACKAGES.get(package_id)
                 if package:
-                    boosted_until = datetime.now(timezone.utc) + timedelta(days=package["duration_days"])
+                    brand_doc = await db.brands.find_one({"_id": ObjectId(transaction["brand_id"])})
+                    now = datetime.now(timezone.utc)
+                    current_until = brand_doc.get("boosted_until") if brand_doc else None
+                    base = current_until if (current_until and current_until > now) else now
+                    boosted_until = base + timedelta(days=package["duration_days"])
                     await db.brands.update_one(
                         {"_id": ObjectId(transaction["brand_id"])},
                         {"$set": {"is_boosted": True, "boosted_until": boosted_until}}
