@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
@@ -18,6 +18,22 @@ import bcrypt
 import jwt
 from bson import ObjectId
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+import stripe as stripe_sdk
+
+def get_stripe_session_status(session_id: str, api_key: str):
+    """Direct Stripe SDK call to avoid emergentintegrations Pydantic validation bug on metadata field."""
+    stripe_sdk.api_key = api_key
+    session = stripe_sdk.checkout.Session.retrieve(session_id)
+    metadata = {}
+    if session.metadata and hasattr(session.metadata, "to_dict"):
+        metadata = session.metadata.to_dict()
+    return {
+        "status": session.status,
+        "payment_status": session.payment_status,
+        "amount_total": session.amount_total,
+        "currency": session.currency,
+        "metadata": metadata
+    }
 
 ROOT_DIR = Path(__file__).parent
 
@@ -1013,21 +1029,20 @@ async def get_boost_status(session_id: str, request: Request):
         return {"status": "complete", "payment_status": "paid", "already_processed": True}
     
     api_key = os.environ.get("STRIPE_API_KEY")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
     
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
-    
-    status: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
+    try:
+        status_data = get_stripe_session_status(session_id, api_key)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     
     # Update transaction status
     await db.payment_transactions.update_one(
         {"session_id": session_id},
-        {"$set": {"payment_status": status.payment_status, "status": status.status}}
+        {"$set": {"payment_status": status_data["payment_status"], "status": status_data["status"]}}
     )
     
     # If paid and not already processed, apply the boost
-    if status.payment_status == "paid" and not transaction.get("boost_applied"):
+    if status_data["payment_status"] == "paid" and not transaction.get("boost_applied"):
         package_id = transaction["package_id"]
         package = BOOST_PACKAGES.get(package_id)
         if package:
@@ -1041,7 +1056,7 @@ async def get_boost_status(session_id: str, request: Request):
                 {"$set": {"boost_applied": True}}
             )
     
-    return {"status": status.status, "payment_status": status.payment_status}
+    return {"status": status_data["status"], "payment_status": status_data["payment_status"]}
 
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
@@ -1344,23 +1359,23 @@ async def get_order_status(session_id: str, request: Request):
         return {"status": "complete", "payment_status": "paid", "already_processed": True}
     
     api_key = os.environ.get("STRIPE_API_KEY")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
     
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
-    status = await stripe_checkout.get_checkout_status(session_id)
+    try:
+        status_data = get_stripe_session_status(session_id, api_key)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     
     await db.orders.update_one(
         {"session_id": session_id},
-        {"$set": {"status": status.payment_status}}
+        {"$set": {"status": status_data["payment_status"]}}
     )
     await db.payment_transactions.update_one(
         {"session_id": session_id},
-        {"$set": {"payment_status": status.payment_status, "status": status.status}}
+        {"$set": {"payment_status": status_data["payment_status"], "status": status_data["status"]}}
     )
     
     # If paid and not already processed
-    if status.payment_status == "paid" and not order.get("stock_deducted"):
+    if status_data["payment_status"] == "paid" and not order.get("stock_deducted"):
         # Deduct stock
         await db.products.update_one(
             {"_id": ObjectId(order["product_id"])},
@@ -1381,7 +1396,7 @@ async def get_order_status(session_id: str, request: Request):
             metadata={"order_session_id": session_id}
         )
     
-    return {"status": status.status, "payment_status": status.payment_status}
+    return {"status": status_data["status"], "payment_status": status_data["payment_status"]}
 
 @api_router.get("/orders/my-orders")
 async def get_my_orders(request: Request):
