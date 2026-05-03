@@ -63,8 +63,10 @@ if RESEND_API_KEY:
 # Shippo config
 SHIPPO_API_KEY = os.environ.get("SHIPPO_API_KEY", "")
 shippo_sdk = None
+shippo_components = None
 if SHIPPO_API_KEY:
     import shippo
+    from shippo.models import components as shippo_components
     shippo_sdk = shippo.Shippo(api_key_header=SHIPPO_API_KEY)
 
 def get_jwt_secret() -> str:
@@ -2245,8 +2247,8 @@ async def get_shipping_label(order_id: str, request: Request):
         "mode": "mock"
     }
     
-    # Try Shippo for real label
-    if shippo_sdk and order.get("tracking_number"):
+    # Try Shippo for real label (generates a real tracking number too)
+    if shippo_sdk:
         try:
             # Check if we already have a Shippo label cached
             existing_label = await db.shipping_labels.find_one({"order_id": order_id})
@@ -2254,29 +2256,33 @@ async def get_shipping_label(order_id: str, request: Request):
                 label_data["shippo_label_url"] = existing_label["label_url"]
                 label_data["mode"] = "shippo"
             else:
-                # Create shipment via Shippo
+                # Create shipment via Shippo using typed request objects
                 shipment = await asyncio.to_thread(
                     shippo_sdk.shipments.create,
-                    {
-                        "address_from": {
-                            "name": brand["brand_name"],
-                            "city": brand.get("location", "London"),
-                            "country": "GB"
-                        },
-                        "address_to": {
-                            "name": buyer["name"] if buyer else "Customer",
-                            "city": "London",
-                            "country": "GB"
-                        },
-                        "parcels": [{
-                            "length": "30",
-                            "width": "20",
-                            "height": "5",
-                            "distance_unit": "cm",
-                            "weight": "0.5",
-                            "mass_unit": "kg"
-                        }]
-                    }
+                    shippo_components.ShipmentCreateRequest(
+                        address_from=shippo_components.AddressCreateRequest(
+                            name=brand["brand_name"],
+                            street1=brand.get("street1", "1 High Street"),
+                            city=brand.get("city", brand.get("location", "London")),
+                            zip=brand.get("postcode", "E1 6AN"),
+                            country="GB"
+                        ),
+                        address_to=shippo_components.AddressCreateRequest(
+                            name=buyer["name"] if buyer else "Customer",
+                            street1=order.get("shipping_street1", "1 High Street"),
+                            city=order.get("shipping_city", "London"),
+                            zip=order.get("shipping_postcode", "SW1A 1AA"),
+                            country="GB"
+                        ),
+                        parcels=[shippo_components.ParcelCreateRequest(
+                            length="30",
+                            width="20",
+                            height="5",
+                            distance_unit="cm",
+                            weight="0.5",
+                            mass_unit="kg"
+                        )]
+                    )
                 )
                 
                 if shipment and hasattr(shipment, 'rates') and shipment.rates:
@@ -2284,15 +2290,39 @@ async def get_shipping_label(order_id: str, request: Request):
                     rate = min(shipment.rates, key=lambda r: float(r.amount))
                     transaction = await asyncio.to_thread(
                         shippo_sdk.transactions.create,
-                        {
-                            "rate": rate.object_id,
-                            "label_file_type": "PDF"
-                        }
+                        shippo_components.TransactionCreateRequest(
+                            rate=rate.object_id,
+                            label_file_type=shippo_components.LabelFileTypeEnum.PDF
+                        )
                     )
                     
-                    if transaction and hasattr(transaction, 'label_url') and transaction.label_url:
+                    # Poll briefly if transaction is QUEUED (real carriers generate labels async)
+                    for _ in range(5):
+                        if transaction and getattr(transaction, "label_url", None):
+                            break
+                        status_val = str(getattr(transaction, "status", ""))
+                        if "QUEUED" not in status_val.upper() and "WAITING" not in status_val.upper():
+                            break
+                        await asyncio.sleep(1)
+                        transaction = await asyncio.to_thread(
+                            shippo_sdk.transactions.get, transaction.object_id
+                        )
+                    
+                    if transaction and getattr(transaction, "label_url", None):
                         label_data["shippo_label_url"] = transaction.label_url
                         label_data["mode"] = "shippo"
+                        label_data["carrier"] = rate.provider
+                        label_data["shipping_cost"] = f"{rate.amount} {rate.currency}"
+                        if getattr(transaction, "tracking_number", None):
+                            label_data["tracking_number"] = transaction.tracking_number
+                            # Save tracking number + courier onto the order so buyers see it too
+                            await db.orders.update_one(
+                                {"_id": safe_object_id(order_id)},
+                                {"$set": {
+                                    "tracking_number": transaction.tracking_number,
+                                    "courier": rate.provider
+                                }}
+                            )
                         # Cache the label
                         await db.shipping_labels.insert_one({
                             "order_id": order_id,
@@ -2300,6 +2330,7 @@ async def get_shipping_label(order_id: str, request: Request):
                             "rate_id": rate.object_id,
                             "carrier": rate.provider,
                             "amount": rate.amount,
+                            "tracking_number": getattr(transaction, "tracking_number", None),
                             "created_at": datetime.now(timezone.utc)
                         })
         except Exception as e:

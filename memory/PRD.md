@@ -10,7 +10,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - Auth: JWT httpOnly cookies
 - Storage: Emergent Object Storage
 - Emails: Resend (LIVE)
-- Shipping: Shippo (mock fallback active — add SHIPPO_API_KEY to go live)
+- Shipping: Shippo — **LIVE** (test key `shippo_test_0e34...`). Returns real rates from Hermes UK / DPD UK and generates real PDF labels. Falls back to mock label on any error.
 
 ## Complete Feature List
 - JWT auth (register, login, logout, refresh, 401 axios interceptor)
@@ -34,6 +34,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 8+ clothing categories
 
 ## Changelog (recent)
+- 2026-02: **Shippo live integration** — added real `shippo_test_*` key. Upgraded server.py to shippo 3.x SDK with typed `ShipmentCreateRequest` / `AddressCreateRequest` / `ParcelCreateRequest` / `TransactionCreateRequest` objects. Added QUEUED-status polling. Real labels now generate (Hermes UK £2.71 verified). Labels cached in `shipping_labels` collection and tracking number + carrier auto-saved on the order.
 - 2026-02: **Boost Extend/Renew** — boost packages panel now always visible on brand dashboard. When already boosted, UI shows "EXTEND YOUR BOOST", days remaining + expiry date, and CTAs become "Extend +7/+30/+90 Days". Backend now stacks new boost durations on top of existing `boosted_until` (no lost days).
 - 2026-02: Stripe live test keys configured (sk_test_... backend, pk_test_... frontend). E2E verified: boost checkout + product purchase checkout both create real `cs_test_...` sessions against Stripe, status polling returns correct unpaid/paid state.
 - 2026-02: Fixed `emergentintegrations.get_checkout_status` Pydantic validation bug by bypassing the library for status polls and using direct Stripe SDK (`stripe.checkout.Session.retrieve` + `session.metadata.to_dict()`). Helper `get_stripe_session_status()` defined at top of server.py.
@@ -46,9 +47,8 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - Product colour variants (support multiple colours per product)
 
 ### P2 (backlog)
-- Real Shippo API integration (awaiting user's Shippo API key)
 - Push notifications (currently short-polling)
-- Refactor `server.py` into modular routes (it's ~2700 lines)
+- Refactor `server.py` into modular routes (it's ~2800 lines)
 
 ## Credentials
 See `/app/memory/test_credentials.md`.
