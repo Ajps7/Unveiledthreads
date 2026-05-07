@@ -857,10 +857,25 @@ async def get_products(
     
     products = await db.products.find(query).sort(sort_field, sort_dir).skip(skip).limit(limit).to_list(limit)
     
+    # Bulk fetch brand payment-ready state to enrich each product
+    brand_ids = list({p.get("brand_id") for p in products if p.get("brand_id")})
+    brand_payment_status = {}
+    if brand_ids:
+        try:
+            brand_object_ids = [ObjectId(bid) for bid in brand_ids]
+            async for b in db.brands.find(
+                {"_id": {"$in": brand_object_ids}},
+                {"_id": 1, "stripe_charges_enabled": 1}
+            ):
+                brand_payment_status[str(b["_id"])] = bool(b.get("stripe_charges_enabled"))
+        except Exception:
+            pass
+    
     result = []
     for product in products:
         product["id"] = str(product["_id"])
         del product["_id"]
+        product["seller_payments_ready"] = brand_payment_status.get(product.get("brand_id"), False)
         result.append(product)
     
     return result
@@ -893,6 +908,9 @@ async def get_product(product_id: str):
         brand["id"] = str(brand["_id"])
         del brand["_id"]
         product["brand"] = brand
+        product["seller_payments_ready"] = bool(brand.get("stripe_charges_enabled"))
+    else:
+        product["seller_payments_ready"] = False
     
     return product
 
@@ -967,6 +985,11 @@ async def get_boost_packages():
 
 @api_router.post("/boost/checkout")
 async def create_boost_checkout(checkout_data: CheckoutRequest, request: Request):
+    # Boost feature temporarily disabled — coming soon
+    raise HTTPException(
+        status_code=503,
+        detail="Brand boost is coming soon. We're polishing this feature and it will be available shortly.",
+    )
     user = await require_brand(request)
     
     brand = await db.brands.find_one({"user_id": user["id"]})
@@ -1074,6 +1097,27 @@ async def stripe_webhook(request: Request):
     host_url = str(request.base_url).rstrip("/")
     webhook_url = f"{host_url}/api/webhook/stripe"
     
+    # Direct Stripe SDK pathway: parse the raw event so we can handle Connect events too.
+    # account.updated: keep brand connect-status fields in sync without polling
+    try:
+        stripe_sdk.api_key = api_key
+        raw_event = stripe_sdk.Event.construct_from(
+            __import__("json").loads(body.decode("utf-8")), api_key
+        )
+        if raw_event.type == "account.updated":
+            account = raw_event.data.object
+            await db.brands.update_one(
+                {"stripe_account_id": account.id},
+                {"$set": {
+                    "stripe_charges_enabled": bool(account.get("charges_enabled")),
+                    "stripe_payouts_enabled": bool(account.get("payouts_enabled")),
+                    "stripe_details_submitted": bool(account.get("details_submitted")),
+                    "stripe_onboarded_at": datetime.now(timezone.utc) if account.get("charges_enabled") and account.get("payouts_enabled") else None,
+                }},
+            )
+    except Exception as e:
+        logger.warning(f"Connect webhook parse skipped: {e}")
+    
     stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
     
     try:
@@ -1103,6 +1147,149 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return {"received": True}
+
+# ============ STRIPE CONNECT (Express) ============
+
+class ConnectOnboardRequest(BaseModel):
+    origin_url: str
+
+@api_router.post("/connect/onboard")
+async def connect_onboard(payload: ConnectOnboardRequest, request: Request):
+    """Create (or reuse) an Express connected account for the brand and return a hosted onboarding link."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    
+    api_key = os.environ.get("STRIPE_API_KEY")
+    stripe_sdk.api_key = api_key
+    
+    account_id = brand.get("stripe_account_id")
+    try:
+        if not account_id:
+            account = await asyncio.to_thread(
+                stripe_sdk.Account.create,
+                type="express",
+                country="GB",
+                email=user["email"],
+                capabilities={
+                    "card_payments": {"requested": True},
+                    "transfers": {"requested": True},
+                },
+                business_type="individual",
+                business_profile={
+                    "name": brand["brand_name"],
+                    "product_description": brand.get("description", "Independent UK clothing brand"),
+                },
+                metadata={
+                    "brand_id": str(brand["_id"]),
+                    "user_id": user["id"],
+                },
+            )
+            account_id = account.id
+            await db.brands.update_one(
+                {"_id": brand["_id"]},
+                {"$set": {
+                    "stripe_account_id": account_id,
+                    "stripe_charges_enabled": False,
+                    "stripe_payouts_enabled": False,
+                    "stripe_onboarded_at": None,
+                }},
+            )
+        
+        # Create AccountLink for hosted onboarding
+        account_link = await asyncio.to_thread(
+            stripe_sdk.AccountLink.create,
+            account=account_id,
+            refresh_url=f"{payload.origin_url}/brand/dashboard?connect=refresh",
+            return_url=f"{payload.origin_url}/brand/dashboard?connect=return",
+            type="account_onboarding",
+        )
+        return {"url": account_link.url, "account_id": account_id}
+    except stripe_sdk.error.InvalidRequestError as e:
+        msg = str(e)
+        if "platform-profile" in msg or "responsibilities of managing losses" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Stripe Connect platform setup required. The Unveiled Threads admin must "
+                    "complete the one-time platform profile at "
+                    "https://dashboard.stripe.com/settings/connect/platform-profile before brands "
+                    "can onboard. Please contact support."
+                ),
+            )
+        logger.error(f"Stripe Connect onboard failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Stripe Connect error: {msg}")
+    except Exception as e:
+        logger.error(f"Stripe Connect onboard failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Stripe Connect error: {str(e)}")
+
+@api_router.get("/connect/status")
+async def connect_status(request: Request):
+    """Refresh and return the brand's Connect account state."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    
+    account_id = brand.get("stripe_account_id")
+    if not account_id:
+        return {
+            "stripe_account_id": None,
+            "charges_enabled": False,
+            "payouts_enabled": False,
+            "details_submitted": False,
+            "requirements_due": [],
+        }
+    
+    api_key = os.environ.get("STRIPE_API_KEY")
+    stripe_sdk.api_key = api_key
+    try:
+        account = await asyncio.to_thread(stripe_sdk.Account.retrieve, account_id)
+    except Exception as e:
+        logger.error(f"Stripe Connect status fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+    
+    charges_enabled = bool(account.charges_enabled)
+    payouts_enabled = bool(account.payouts_enabled)
+    details_submitted = bool(account.details_submitted)
+    requirements_due = list(getattr(account.requirements, "currently_due", []) or [])
+    
+    update_doc = {
+        "stripe_charges_enabled": charges_enabled,
+        "stripe_payouts_enabled": payouts_enabled,
+        "stripe_details_submitted": details_submitted,
+    }
+    if charges_enabled and payouts_enabled and not brand.get("stripe_onboarded_at"):
+        update_doc["stripe_onboarded_at"] = datetime.now(timezone.utc)
+    await db.brands.update_one({"_id": brand["_id"]}, {"$set": update_doc})
+    
+    return {
+        "stripe_account_id": account_id,
+        "charges_enabled": charges_enabled,
+        "payouts_enabled": payouts_enabled,
+        "details_submitted": details_submitted,
+        "requirements_due": requirements_due,
+    }
+
+@api_router.get("/connect/dashboard-link")
+async def connect_dashboard_link(request: Request):
+    """Return a one-time login link to the Express Dashboard for the brand."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand or not brand.get("stripe_account_id"):
+        raise HTTPException(status_code=400, detail="Brand has not connected Stripe yet")
+    
+    api_key = os.environ.get("STRIPE_API_KEY")
+    stripe_sdk.api_key = api_key
+    try:
+        link = await asyncio.to_thread(
+            stripe_sdk.Account.create_login_link, brand["stripe_account_id"]
+        )
+        return {"url": link.url}
+    except Exception as e:
+        logger.error(f"Stripe Connect login link failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
 # ============ ADMIN STATS ============
 
@@ -1282,6 +1469,16 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     if purchase.size not in product["sizes"]:
         raise HTTPException(status_code=400, detail="Selected size is not available")
     
+    # Verify brand has completed Stripe Connect onboarding (required for split payments)
+    brand_doc = await db.brands.find_one({"_id": ObjectId(product["brand_id"])})
+    if not brand_doc:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    if not brand_doc.get("stripe_account_id") or not brand_doc.get("stripe_charges_enabled"):
+        raise HTTPException(
+            status_code=400,
+            detail="This brand hasn't completed Stripe payment onboarding yet. Please check back soon.",
+        )
+    
     # Calculate platform fee and shipping
     product_price = product["price"]
     shipping_cost = product.get("shipping_cost", 0)
@@ -1289,36 +1486,57 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     total_price = round(product_price + platform_fee + shipping_cost, 2)
     
     api_key = os.environ.get("STRIPE_API_KEY")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    stripe_sdk.api_key = api_key
     
     success_url = f"{purchase.origin_url}/order/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{purchase.origin_url}/products/{purchase.product_id}"
     
-    checkout_request = CheckoutSessionRequest(
-        amount=total_price,
-        currency="gbp",
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata={
-            "type": "product_purchase",
-            "user_id": user["id"],
-            "product_id": str(product["_id"]),
-            "brand_id": product["brand_id"],
-            "size": purchase.size,
-            "product_price": str(product_price),
-            "platform_fee": str(platform_fee),
-            "shipping_cost": str(shipping_cost)
-        }
-    )
+    metadata = {
+        "type": "product_purchase",
+        "user_id": user["id"],
+        "product_id": str(product["_id"]),
+        "brand_id": product["brand_id"],
+        "size": purchase.size,
+        "product_price": str(product_price),
+        "platform_fee": str(platform_fee),
+        "shipping_cost": str(shipping_cost),
+    }
     
-    session = await stripe_checkout.create_checkout_session(checkout_request)
+    try:
+        # Destination charge: platform owns the payment, transfers brand_payout to connected account,
+        # keeps `application_fee_amount` (= 4% platform fee in pence). Shipping flows through to brand.
+        session = await asyncio.to_thread(
+            stripe_sdk.checkout.Session.create,
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "gbp",
+                    "product_data": {
+                        "name": f"{product['name']} (Size: {purchase.size})",
+                        "description": f"Sold by {product['brand_name']}",
+                    },
+                    "unit_amount": int(round(total_price * 100)),
+                },
+                "quantity": 1,
+            }],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata=metadata,
+            payment_intent_data={
+                "application_fee_amount": int(round(platform_fee * 100)),
+                "transfer_data": {
+                    "destination": brand_doc["stripe_account_id"],
+                },
+                "metadata": metadata,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Stripe destination checkout failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     
     # Create order record
     order_doc = {
-        "session_id": session.session_id,
+        "session_id": session.id,
         "buyer_id": user["id"],
         "buyer_email": user["email"],
         "buyer_name": user["name"],
@@ -1332,6 +1550,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "platform_fee": platform_fee,
         "total_charged": total_price,
         "brand_payout": product_price + shipping_cost,
+        "stripe_account_id": brand_doc["stripe_account_id"],
         "status": "initiated",
         "shipping_status": "confirmed",
         "tracking_number": None,
@@ -1344,7 +1563,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     
     # Also add to payment_transactions
     await db.payment_transactions.insert_one({
-        "session_id": session.session_id,
+        "session_id": session.id,
         "user_id": user["id"],
         "type": "product_purchase",
         "amount": total_price,
@@ -1353,7 +1572,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "created_at": datetime.now(timezone.utc)
     })
     
-    return {"url": session.url, "session_id": session.session_id}
+    return {"url": session.url, "session_id": session.id}
 
 @api_router.get("/orders/status/{session_id}")
 async def get_order_status(session_id: str, request: Request):

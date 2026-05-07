@@ -217,9 +217,24 @@ export default function ProductDetail() {
               {product.stock > 0 ? <span className="text-[#39FF14]">{product.stock} in stock</span> : <span className="text-red-400">Out of stock</span>}
             </p>
 
+            {product.seller_payments_ready === false && (
+              <div className="mb-4 border border-yellow-500/30 bg-yellow-500/5 p-3 text-xs text-yellow-200" data-testid="seller-not-ready-banner">
+                <strong className="text-yellow-300">Coming soon to checkout.</strong> {product.brand?.brand_name || 'This brand'} is finishing their secure Stripe payout setup. Send them a message to be notified the moment it's live.
+              </div>
+            )}
+
             <div className="flex gap-4 mb-4">
-              <Button className="btn-primary flex-1" disabled={product.stock === 0 || !selectedSize || purchasing} onClick={handlePurchase} data-testid="buy-now-button">
-                {purchasing ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</> : <><ShoppingBag className="w-5 h-5 mr-2" /> BUY NOW — £{totalPrice.toFixed(2)}</>}
+              <Button
+                className="btn-primary flex-1"
+                disabled={product.stock === 0 || !selectedSize || purchasing || product.seller_payments_ready === false}
+                onClick={handlePurchase}
+                data-testid="buy-now-button"
+              >
+                {purchasing
+                  ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
+                  : product.seller_payments_ready === false
+                    ? <><ShoppingBag className="w-5 h-5 mr-2" /> Payments unavailable</>
+                    : <><ShoppingBag className="w-5 h-5 mr-2" /> BUY NOW — £{totalPrice.toFixed(2)}</>}
               </Button>
             </div>
             {product.brand && user && (
