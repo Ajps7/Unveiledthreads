@@ -49,11 +49,13 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 
 ## Roadmap
 ### P1 (next)
-- Product colour variants (support multiple colours per product)
+- (none queued — user dropped product colour variants)
 
 ### P2 (backlog)
+- Stripe Connect Phase 3 (Payouts widget on Brand Dashboard)
+- Stripe Connect Phase 4 (refunds with `reverse_transfer=True`)
 - Push notifications (currently short-polling)
-- Refactor `server.py` into modular routes (it's ~2800 lines)
+- Refactor `server.py` into modular routes (it's ~3000 lines)
 
 ## Credentials
 See `/app/memory/test_credentials.md`.
