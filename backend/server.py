@@ -20,10 +20,14 @@ from bson import ObjectId
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
 import stripe as stripe_sdk
 
-def get_stripe_session_status(session_id: str, api_key: str):
-    """Direct Stripe SDK call to avoid emergentintegrations Pydantic validation bug on metadata field."""
+def get_stripe_session_status(session_id: str, api_key: str, stripe_account: Optional[str] = None):
+    """Direct Stripe SDK call to avoid emergentintegrations Pydantic validation bug on metadata field.
+    Pass stripe_account to retrieve sessions created on a connected account (direct charges)."""
     stripe_sdk.api_key = api_key
-    session = stripe_sdk.checkout.Session.retrieve(session_id)
+    kwargs = {}
+    if stripe_account:
+        kwargs["stripe_account"] = stripe_account
+    session = stripe_sdk.checkout.Session.retrieve(session_id, **kwargs)
     metadata = {}
     if session.metadata and hasattr(session.metadata, "to_dict"):
         metadata = session.metadata.to_dict()
@@ -1503,8 +1507,9 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     }
     
     try:
-        # Destination charge: platform owns the payment, transfers brand_payout to connected account,
-        # keeps `application_fee_amount` (= 4% platform fee in pence). Shipping flows through to brand.
+        # Direct charge: payment is processed on the seller's connected account
+        # (passed via stripe_account header). The seller is liable for chargebacks.
+        # Platform takes its 4% via `application_fee_amount`.
         session = await asyncio.to_thread(
             stripe_sdk.checkout.Session.create,
             mode="payment",
@@ -1513,7 +1518,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
                     "currency": "gbp",
                     "product_data": {
                         "name": f"{product['name']} (Size: {purchase.size})",
-                        "description": f"Sold by {product['brand_name']}",
+                        "description": f"Sold by {product['brand_name']} via Unveiled Threads",
                     },
                     "unit_amount": int(round(total_price * 100)),
                 },
@@ -1524,14 +1529,12 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             metadata=metadata,
             payment_intent_data={
                 "application_fee_amount": int(round(platform_fee * 100)),
-                "transfer_data": {
-                    "destination": brand_doc["stripe_account_id"],
-                },
                 "metadata": metadata,
             },
+            stripe_account=brand_doc["stripe_account_id"],
         )
     except Exception as e:
-        logger.error(f"Stripe destination checkout failed: {e}")
+        logger.error(f"Stripe direct charge checkout failed: {e}")
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     
     # Create order record
@@ -1591,7 +1594,10 @@ async def get_order_status(session_id: str, request: Request):
     api_key = os.environ.get("STRIPE_API_KEY")
     
     try:
-        status_data = get_stripe_session_status(session_id, api_key)
+        # Direct charge: session lives on the seller's connected account
+        status_data = get_stripe_session_status(
+            session_id, api_key, stripe_account=order.get("stripe_account_id")
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     
