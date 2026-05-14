@@ -10,7 +10,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - Auth: JWT httpOnly cookies
 - Storage: Emergent Object Storage
 - Emails: Resend (LIVE)
-- Shipping: Shippo — **LIVE** (test key `shippo_test_0e34...`). Returns real rates from Hermes UK / DPD UK and generates real PDF labels. Falls back to mock label on any error.
+- Shipping: **Brands handle their own shipping** (Vinted/Depop model). They print labels via Royal Mail / Hermes / etc on their own, then enter courier + tracking number into the app via "Mark as Shipped" form. Platform doesn't generate labels.
 
 ## Complete Feature List
 - JWT auth (register, login, logout, refresh, 401 axios interceptor)
@@ -34,13 +34,9 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 8+ clothing categories
 
 ## Changelog (recent)
-- 2026-02: **Stripe Connect (Phases 1 + 2)** + **Boost feature paused as Coming Soon**.
-  - Backend: New endpoints `/api/connect/onboard`, `/api/connect/status`, `/api/connect/dashboard-link`. Express-account creation with GB/individual defaults. `/api/orders/checkout` now uses **destination charges** with `application_fee_amount = 4% of product price` and `transfer_data.destination = brand.stripe_account_id`. Webhook handles `account.updated` to sync `stripe_charges_enabled`/`stripe_payouts_enabled`. Buyer purchase blocked with friendly 400 if seller hasn't completed onboarding.
-  - Boost: `/api/boost/checkout` returns 503 "coming soon" message. Frontend boost section replaced with Lock-icon "Coming Soon" tile.
-  - Frontend: Brand Dashboard shows Stripe Connect panel (yellow when not connected, green when connected) with "Connect with Stripe" CTA, "Resume Onboarding" if partial, requirements list, and "Open Stripe Dashboard" button when fully connected. ProductDetail shows "Coming soon to checkout" banner + disables Buy button when seller's `stripe_charges_enabled=false`. Products list response now includes `seller_payments_ready`.
-  - **⚠️ ACTION REQUIRED FROM USER**: Stripe blocked the first onboarding attempt with `Please review the responsibilities of managing losses for connected accounts at https://dashboard.stripe.com/settings/connect/platform-profile`. This is a one-time platform setup the Unveiled Threads admin must complete on the Stripe Dashboard before any brand can connect. Backend returns this URL in the friendly error message.
-- 2026-02: Shippo live integration (Hermes UK £2.71 verified)
-- Earlier: 4% platform fee, Instagram/website removed, T&Cs, advanced filters, community feed
+- 2026-02: **Stripe Connect switched to Direct Charges** (seller-liable). Sellers process payments on their own connected accounts; platform takes 4% via `application_fee_amount`. Chargebacks land on the seller, not the platform. Status polling now passes `stripe_account` when retrieving sessions.
+- 2026-02: **Shippo fully removed.** Platform no longer generates labels or holds shipping liability. Brands ship via whatever carrier they prefer (Royal Mail, Hermes, etc.) and enter tracking number through the existing "Mark as Shipped" form. `/api/orders/{id}/shipping-label` endpoint removed. `SHIPPO_API_KEY` cleared from `.env`. Vinted/Depop-style shipping model.
+- 2026-02: **Stripe Connect (Phases 1 + 2)** + **Boost paused as Coming Soon**. New endpoints `/api/connect/onboard`, `/api/connect/status`, `/api/connect/dashboard-link`. Express GB onboarding. Webhook handles `account.updated`. Products from un-Connected brands disabled with "Coming soon to checkout" banner.
 - 2026-02: Stripe live test keys configured (sk_test_... backend, pk_test_... frontend). E2E verified: boost checkout + product purchase checkout both create real `cs_test_...` sessions against Stripe, status polling returns correct unpaid/paid state.
 - 2026-02: Fixed `emergentintegrations.get_checkout_status` Pydantic validation bug by bypassing the library for status polls and using direct Stripe SDK (`stripe.checkout.Session.retrieve` + `session.metadata.to_dict()`). Helper `get_stripe_session_status()` defined at top of server.py.
 - 2026-02: Switched `load_dotenv()` to `load_dotenv(override=True)` so `.env` always wins over pod-inherited env vars (pod was silently overriding STRIPE_API_KEY with `sk_test_emergent`).
