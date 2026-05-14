@@ -19,6 +19,24 @@ import jwt
 from bson import ObjectId
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
 import stripe as stripe_sdk
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+def _client_ip(request):
+    """Resolve the real client IP through the Kubernetes ingress proxy.
+    Falls back to socket IP when no forwarding header is present."""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return get_remote_address(request)
+
+# Rate limiter (uses real client IP via X-Forwarded-For). Routes opt-in via @limiter.limit.
+limiter = Limiter(key_func=_client_ip, default_limits=["120/minute"])
 
 def get_stripe_session_status(session_id: str, api_key: str, stripe_account: Optional[str] = None):
     """Direct Stripe SDK call to avoid emergentintegrations Pydantic validation bug on metadata field.
@@ -369,11 +387,13 @@ BOOST_PACKAGES = {
 # ============ AUTH ROUTES ============
 
 @api_router.post("/auth/register")
-async def register(user_data: UserCreate, response: Response):
+@limiter.limit("10/hour")
+async def register(user_data: UserCreate, request: Request, response: Response):
     email = user_data.email.lower()
     existing = await db.users.find_one({"email": email})
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        # Generic message to prevent email enumeration
+        raise HTTPException(status_code=400, detail="Could not register account")
     
     hashed = hash_password(user_data.password)
     user_doc = {
@@ -401,7 +421,8 @@ async def register(user_data: UserCreate, response: Response):
     }
 
 @api_router.post("/auth/login")
-async def login(user_data: UserLogin, response: Response):
+@limiter.limit("10/minute")
+async def login(user_data: UserLogin, request: Request, response: Response):
     email = user_data.email.lower()
     user = await db.users.find_one({"email": email})
     
@@ -441,6 +462,7 @@ async def get_me(request: Request):
     }
 
 @api_router.post("/auth/refresh")
+@limiter.limit("30/minute")
 async def refresh_token(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
     if not token:
@@ -1094,16 +1116,41 @@ async def stripe_webhook(request: Request):
     signature = request.headers.get("Stripe-Signature")
     
     api_key = os.environ.get("STRIPE_API_KEY")
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
     
-    # Direct Stripe SDK pathway: parse the raw event so we can handle Connect events too.
-    # account.updated: keep brand connect-status fields in sync without polling
-    try:
-        stripe_sdk.api_key = api_key
-        raw_event = stripe_sdk.Event.construct_from(
-            __import__("json").loads(body.decode("utf-8")), api_key
+    stripe_sdk.api_key = api_key
+    
+    # Verify signature against webhook secret. In dev (no secret set), log a loud warning
+    # and accept unsigned events — but in production STRIPE_WEBHOOK_SECRET MUST be set
+    # or this endpoint becomes a free path for attackers to fake payments / account state.
+    raw_event = None
+    if webhook_secret:
+        try:
+            raw_event = stripe_sdk.Webhook.construct_event(
+                payload=body, sig_header=signature, secret=webhook_secret
+            )
+        except stripe_sdk.error.SignatureVerificationError:
+            logger.warning("Stripe webhook signature verification FAILED — rejecting event")
+            raise HTTPException(status_code=400, detail="Invalid signature")
+        except Exception as e:
+            logger.error(f"Stripe webhook parse error: {e}")
+            raise HTTPException(status_code=400, detail="Invalid payload")
+    else:
+        logger.warning(
+            "STRIPE_WEBHOOK_SECRET is not set — webhook events are NOT being verified. "
+            "Add the secret from https://dashboard.stripe.com/test/webhooks before going live."
         )
+        try:
+            import json as _json
+            raw_event = stripe_sdk.Event.construct_from(
+                _json.loads(body.decode("utf-8")), api_key
+            )
+        except Exception as e:
+            logger.error(f"Webhook parse failed: {e}")
+            raise HTTPException(status_code=400, detail="Invalid payload")
+    
+    try:
+        # Connect account lifecycle: keep brand connect-status fields in sync
         if raw_event.type == "account.updated":
             account = raw_event.data.object
             await db.brands.update_one(
@@ -1115,19 +1162,29 @@ async def stripe_webhook(request: Request):
                     "stripe_onboarded_at": datetime.now(timezone.utc) if account.get("charges_enabled") and account.get("payouts_enabled") else None,
                 }},
             )
-    except Exception as e:
-        logger.warning(f"Connect webhook parse skipped: {e}")
-    
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
-    
-    try:
-        event = await stripe_checkout.handle_webhook(body, signature)
         
-        if event.payment_status == "paid":
-            transaction = await db.payment_transactions.find_one({"session_id": event.session_id})
-            if transaction and not transaction.get("boost_applied"):
-                package_id = event.metadata.get("package_id")
-                package = BOOST_PACKAGES.get(package_id)
+        # Checkout session completed: settle orders + (if boost) extend expiry
+        if raw_event.type == "checkout.session.completed":
+            session = raw_event.data.object
+            session_id = session.id
+            metadata = dict(session.metadata) if session.metadata else {}
+            payment_status = session.payment_status
+            
+            # Update payment_transactions
+            await db.payment_transactions.update_one(
+                {"session_id": session_id},
+                {"$set": {"payment_status": payment_status, "status": session.status}}
+            )
+            
+            # Boost flow (if still applicable when boost is re-enabled)
+            transaction = await db.payment_transactions.find_one({"session_id": session_id})
+            if (
+                payment_status == "paid"
+                and transaction
+                and not transaction.get("boost_applied")
+                and metadata.get("package_id")
+            ):
+                package = BOOST_PACKAGES.get(metadata["package_id"])
                 if package:
                     brand_doc = await db.brands.find_one({"_id": ObjectId(transaction["brand_id"])})
                     now = datetime.now(timezone.utc)
@@ -1139,14 +1196,18 @@ async def stripe_webhook(request: Request):
                         {"$set": {"is_boosted": True, "boosted_until": boosted_until}}
                     )
                     await db.payment_transactions.update_one(
-                        {"session_id": event.session_id},
+                        {"session_id": session_id},
                         {"$set": {"boost_applied": True, "payment_status": "paid"}}
                     )
         
         return {"received": True}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return {"received": True}
+        # Return 500 so Stripe retries; the previous behaviour of swallowing errors
+        # would silently drop genuinely paid events.
+        logger.error(f"Webhook handler error for event {getattr(raw_event, 'id', '?')}: {e}")
+        raise HTTPException(status_code=500, detail="Webhook handler error")
 
 # ============ STRIPE CONNECT (Express) ============
 
@@ -1154,6 +1215,7 @@ class ConnectOnboardRequest(BaseModel):
     origin_url: str
 
 @api_router.post("/connect/onboard")
+@limiter.limit("10/minute")
 async def connect_onboard(payload: ConnectOnboardRequest, request: Request):
     """Create (or reuse) an Express connected account for the brand and return a hosted onboarding link."""
     user = await require_brand(request)
@@ -1456,6 +1518,7 @@ async def upload_brand_banner(request: Request, file: UploadFile = File(...)):
 # ============ PRODUCT PURCHASE / ORDERS ============
 
 @api_router.post("/orders/checkout")
+@limiter.limit("20/minute")
 async def create_order_checkout(purchase: ProductPurchaseRequest, request: Request):
     user = await get_current_user(request)
     
@@ -2818,6 +2881,11 @@ async def seed_demo_data():
 
 # Include the router in the main app
 app.include_router(api_router)
+
+# Wire up rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
