@@ -39,6 +39,7 @@ import {
   CheckCircle2,
   AlertTriangle
 } from 'lucide-react';
+import { getTrackingUrl } from '../lib/courierTracking';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -469,6 +470,21 @@ export default function BrandDashboard() {
                       <div>
                         <p className="text-xs text-[#9CA3AF]">Tracking: <span className="text-white font-mono">{order.tracking_number}</span></p>
                         <p className="text-xs text-[#9CA3AF]">via {order.courier}</p>
+                        {(() => {
+                          const url = getTrackingUrl(order.courier, order.tracking_number);
+                          if (!url) return null;
+                          return (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 mt-1 text-[10px] text-[#39FF14] hover:underline font-bold uppercase tracking-wider"
+                              data-testid={`brand-track-on-courier-${order.id}`}
+                            >
+                              Track on {order.courier} <ExternalLink className="w-3 h-3" />
+                            </a>
+                          );
+                        })()}
                       </div>
                       <div className="flex gap-2">
                         {order.shipping_status !== 'delivered' && (

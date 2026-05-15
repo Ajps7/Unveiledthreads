@@ -11,7 +11,8 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import Header from '../components/Header';
-import { Package, ArrowLeft, Star, Truck, CheckCircle, Clock, MapPin } from 'lucide-react';
+import { Package, ArrowLeft, Star, Truck, CheckCircle, Clock, MapPin, ExternalLink } from 'lucide-react';
+import { getTrackingUrl } from '../lib/courierTracking';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -230,6 +231,21 @@ export default function MyOrders() {
                         <p className="text-xs text-[#9CA3AF] mb-1">Tracking Number</p>
                         <p className="text-white font-mono text-sm">{order.tracking_number}</p>
                         <p className="text-xs text-[#9CA3AF] mt-1">via {order.courier}</p>
+                        {(() => {
+                          const url = getTrackingUrl(order.courier, order.tracking_number);
+                          if (!url) return null;
+                          return (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 mt-2 text-xs text-[#39FF14] hover:underline font-bold uppercase tracking-wider"
+                              data-testid={`track-on-courier-${order.id}`}
+                            >
+                              Track on {order.courier} <ExternalLink className="w-3 h-3" />
+                            </a>
+                          );
+                        })()}
                       </div>
                     )}
 
