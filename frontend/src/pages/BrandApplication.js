@@ -49,6 +49,7 @@ export default function BrandApplication() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [applyResult, setApplyResult] = useState(null);
   const [formData, setFormData] = useState({
     brand_name: '',
     description: '',
@@ -70,7 +71,8 @@ export default function BrandApplication() {
     }
 
     try {
-      await axios.post(`${API}/api/brands/apply`, formData, { withCredentials: true });
+      const res = await axios.post(`${API}/api/brands/apply`, formData, { withCredentials: true });
+      setApplyResult(res.data);
       setSuccess(true);
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -87,6 +89,7 @@ export default function BrandApplication() {
   };
 
   if (success) {
+    const autoApproved = applyResult?.auto_approved;
     return (
       <div className="min-h-screen bg-[#050505]">
         <Header />
@@ -95,15 +98,18 @@ export default function BrandApplication() {
           <h1 
             className="text-3xl md:text-4xl font-black tracking-tighter uppercase mb-4 text-white"
             style={{ fontFamily: 'Clash Display, sans-serif' }}
+            data-testid="apply-success-title"
           >
-            APPLICATION SUBMITTED
+            {autoApproved ? 'YOU\'RE APPROVED' : 'APPLICATION SUBMITTED'}
           </h1>
-          <p className="text-[#9CA3AF] mb-8">
-            Thank you for applying to Unveiled Threads! We'll review your application and get back to you soon.
+          <p className="text-[#9CA3AF] mb-8" data-testid="apply-success-message">
+            {autoApproved
+              ? "Your brand has been approved instantly. Check your inbox — we've emailed you a one-click link to finish your secure Stripe payout setup so you can start selling today."
+              : "Thanks for applying to Unveiled Threads. Our team will review your application within 24 hours and email you when it's been approved."}
           </p>
-          <Link to="/">
+          <Link to={autoApproved ? '/brand/dashboard' : '/'}>
             <Button className="btn-primary" data-testid="back-to-home-button">
-              Back to Home
+              {autoApproved ? 'Go to Brand Dashboard' : 'Back to Home'}
             </Button>
           </Link>
         </div>

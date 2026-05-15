@@ -384,6 +384,195 @@ BOOST_PACKAGES = {
     "quarterly": {"id": "quarterly", "name": "Quarterly Boost", "duration_days": 90, "price": 69.99, "description": "90 days of maximum exposure"},
 }
 
+# ============ APPLICATION RISK SCORING & AUTO-APPROVAL ============
+
+AUTO_APPROVE_RISK_THRESHOLD = 20  # score < this → auto-approve
+PROTECTED_BRAND_TERMS = [
+    "supreme", "nike", "adidas", "off-white", "off white", "stussy", "stüssy",
+    "palace", "yeezy", "balenciaga", "gucci", "louis vuitton", "lv ", "prada",
+    "dior", "fendi", "burberry", "moncler", "bape", "fear of god", "essentials",
+    "corteiz", "trapstar", "amiri", "rhude", "represent",
+]
+COUNTERFEIT_KEYWORDS = [
+    "wholesale", "dropship", "drop ship", "aliexpress", "yupoo", "1:1",
+    "replica", "rep ", " rep,", "mirror quality", "dhgate", "factory direct",
+    "tier 1", "ua quality", "best fake",
+]
+SUSPICIOUS_EMAIL_DOMAINS = [
+    "tempmail.org", "guerrillamail.com", "10minutemail.com", "mailinator.com",
+    "throwaway.email", "trashmail.com", "yopmail.com", "fakeinbox.com",
+]
+
+
+def calculate_application_risk(application, user):
+    """Returns (score, reasons[]). Higher score = higher risk.
+    < AUTO_APPROVE_RISK_THRESHOLD → auto-approved. Otherwise queued for admin review."""
+    score = 0
+    reasons = []
+    
+    brand_name = (application.brand_name or "").lower()
+    description = (application.description or "").lower()
+    email = (user.get("email") or "").lower()
+    
+    # Protected brand terms (very strong counterfeit signal)
+    for term in PROTECTED_BRAND_TERMS:
+        if term in brand_name:
+            score += 50
+            reasons.append(f"brand_name_contains_protected_term:{term.strip()}")
+            break
+    
+    # Counterfeit keywords in description
+    for kw in COUNTERFEIT_KEYWORDS:
+        if kw in description:
+            score += 40
+            reasons.append(f"description_contains_counterfeit_keyword:{kw.strip()}")
+            break
+    
+    # Throwaway email domain
+    domain = email.split("@")[-1] if "@" in email else ""
+    if domain in SUSPICIOUS_EMAIL_DOMAINS:
+        score += 30
+        reasons.append(f"throwaway_email_domain:{domain}")
+    
+    # Account age < 24h
+    try:
+        created = user.get("created_at")
+        if isinstance(created, datetime):
+            age_seconds = (datetime.now(timezone.utc) - created).total_seconds()
+            if age_seconds < 86400:
+                score += 15
+                reasons.append("account_under_24h_old")
+    except Exception:
+        pass
+    
+    # Description too short / low effort
+    if len(description) < 50:
+        score += 10
+        reasons.append("description_too_short")
+    
+    # Brand name too short or numeric-heavy
+    if len(brand_name) < 3:
+        score += 10
+        reasons.append("brand_name_too_short")
+    digit_ratio = sum(c.isdigit() for c in brand_name) / max(len(brand_name), 1)
+    if digit_ratio > 0.3:
+        score += 10
+        reasons.append("brand_name_numeric_heavy")
+    
+    return score, reasons
+
+
+async def _finalise_approval(application_id, application, origin_url):
+    """Shared approval logic used by both auto-approval and manual admin approval.
+    1. Marks application approved, 2. promotes user role to 'brand',
+    3. creates brand profile, 4. creates Stripe Connect account + onboarding link,
+    5. sends approval email with Stripe link.
+    Returns: brand_id (str)."""
+    user_id_str = application["user_id"]
+    user_object_id = ObjectId(user_id_str)
+    
+    # 1. Mark approved
+    await db.brand_applications.update_one(
+        {"_id": safe_object_id(application_id)},
+        {"$set": {
+            "status": "approved",
+            "approved_at": datetime.now(timezone.utc),
+            "auto_approved": application.get("risk_score", 100) < AUTO_APPROVE_RISK_THRESHOLD,
+        }}
+    )
+    
+    # 2. Promote user role
+    applicant = await db.users.find_one({"_id": user_object_id})
+    if applicant and applicant.get("role") != "admin":
+        await db.users.update_one(
+            {"_id": user_object_id},
+            {"$set": {"role": "brand"}}
+        )
+    
+    # 3. Create brand profile
+    brand_doc = {
+        "user_id": user_id_str,
+        "brand_name": application["brand_name"],
+        "description": application["description"],
+        "instagram_handle": application.get("instagram_handle"),
+        "website": application.get("website"),
+        "location": application["location"],
+        "category": application["category"],
+        "logo_url": None,
+        "banner_url": None,
+        "is_boosted": False,
+        "boosted_until": None,
+        "is_brand_of_week": False,
+        "stripe_account_id": None,
+        "stripe_charges_enabled": False,
+        "stripe_payouts_enabled": False,
+        "stripe_onboarded_at": None,
+        "created_at": datetime.now(timezone.utc)
+    }
+    brand_result = await db.brands.insert_one(brand_doc)
+    brand_id = str(brand_result.inserted_id)
+    
+    # 4. Auto-create Stripe Connect account + onboarding link
+    stripe_onboarding_url = None
+    if applicant:
+        api_key = os.environ.get("STRIPE_API_KEY")
+        stripe_sdk.api_key = api_key
+        try:
+            account = await asyncio.to_thread(
+                stripe_sdk.Account.create,
+                type="express",
+                country="GB",
+                email=applicant["email"],
+                capabilities={
+                    "card_payments": {"requested": True},
+                    "transfers": {"requested": True},
+                },
+                business_type="individual",
+                business_profile={
+                    "name": application["brand_name"],
+                    "product_description": application.get("description") or "Independent UK clothing brand",
+                },
+                metadata={"brand_id": brand_id, "user_id": user_id_str},
+            )
+            await db.brands.update_one(
+                {"_id": brand_result.inserted_id},
+                {"$set": {"stripe_account_id": account.id}}
+            )
+            # Use FRONTEND_URL for refresh/return URLs since onboarding email is opened in browser
+            frontend_url = os.environ.get("FRONTEND_URL", origin_url).rstrip("/")
+            link = await asyncio.to_thread(
+                stripe_sdk.AccountLink.create,
+                account=account.id,
+                refresh_url=f"{frontend_url}/brand/dashboard?connect=refresh",
+                return_url=f"{frontend_url}/brand/dashboard?connect=return",
+                type="account_onboarding",
+            )
+            stripe_onboarding_url = link.url
+        except Exception as e:
+            logger.error(f"Auto Stripe Connect creation failed for brand {brand_id}: {e}")
+    
+    # 5. Send approval notification (Resend handles the email body)
+    message = (
+        f"Congratulations! Your brand '{application['brand_name']}' is approved on Unveiled Threads. "
+        f"One last step: complete your secure Stripe payout setup so you can start receiving payments."
+    )
+    if stripe_onboarding_url:
+        message += f"\n\nFinish Stripe setup (5 mins): {stripe_onboarding_url}"
+    
+    await create_notification(
+        user_id=user_id_str,
+        brand_id=brand_id,
+        notification_type="application_approved",
+        title="You're approved — finish Stripe setup",
+        message=message,
+        metadata={
+            "brand_id": brand_id,
+            "stripe_onboarding_url": stripe_onboarding_url,
+        }
+    )
+    
+    return brand_id
+
 # ============ AUTH ROUTES ============
 
 @api_router.post("/auth/register")
@@ -499,6 +688,9 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
     if existing:
         raise HTTPException(status_code=400, detail="You already have a pending or approved brand application")
     
+    # Hybrid auto-approval: compute risk score from application + applicant signals
+    risk_score, risk_reasons = calculate_application_risk(application, user)
+    
     app_doc = {
         "user_id": user["id"],
         "brand_name": application.brand_name,
@@ -508,13 +700,28 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
         "location": application.location,
         "category": application.category,
         "status": "pending",
+        "risk_score": risk_score,
+        "risk_reasons": risk_reasons,
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.brand_applications.insert_one(app_doc)
+    application_id = str(result.inserted_id)
+    
+    # Auto-approve only if score is low. Otherwise queue for admin review.
+    auto_approved = False
+    if risk_score < AUTO_APPROVE_RISK_THRESHOLD:
+        await _finalise_approval(application_id, app_doc, origin_url=str(request.base_url).rstrip("/"))
+        auto_approved = True
     
     return {
-        "id": str(result.inserted_id),
-        "message": "Application submitted successfully"
+        "id": application_id,
+        "message": (
+            "Application approved instantly — check your email to finish Stripe payout setup."
+            if auto_approved
+            else "Application submitted. Our team will review it shortly."
+        ),
+        "auto_approved": auto_approved,
+        "risk_score": risk_score,
     }
 
 @api_router.get("/brands/my-application")
@@ -557,7 +764,10 @@ async def get_all_applications(request: Request, status: Optional[str] = None):
     if status:
         query["status"] = status
     
-    applications = await db.brand_applications.find(query).sort("created_at", -1).to_list(100)
+    # Sort by risk score descending (highest risk first), then newest
+    applications = await db.brand_applications.find(query).sort(
+        [("risk_score", -1), ("created_at", -1)]
+    ).to_list(100)
     
     result = []
     for app in applications:
@@ -566,6 +776,9 @@ async def get_all_applications(request: Request, status: Optional[str] = None):
         # Get user info
         user = await db.users.find_one({"_id": ObjectId(app["user_id"])}, {"_id": 0, "password_hash": 0})
         app["user"] = user
+        # Default scores for legacy applications submitted before risk scoring shipped
+        app.setdefault("risk_score", 0)
+        app.setdefault("risk_reasons", [])
         result.append(app)
     
     return result
@@ -581,49 +794,8 @@ async def approve_application(application_id: str, request: Request):
     if application["status"] != "pending":
         raise HTTPException(status_code=400, detail="Application already processed")
     
-    # Update application status
-    await db.brand_applications.update_one(
-        {"_id": safe_object_id(application_id)},
-        {"$set": {"status": "approved", "approved_at": datetime.now(timezone.utc)}}
-    )
-    
-    # Update user role to brand (but don't downgrade admins)
-    applicant = await db.users.find_one({"_id": ObjectId(application["user_id"])})
-    if applicant and applicant.get("role") != "admin":
-        await db.users.update_one(
-            {"_id": ObjectId(application["user_id"])},
-            {"$set": {"role": "brand"}}
-        )
-    
-    # Create brand profile
-    brand_doc = {
-        "user_id": application["user_id"],
-        "brand_name": application["brand_name"],
-        "description": application["description"],
-        "instagram_handle": application["instagram_handle"],
-        "website": application["website"],
-        "location": application["location"],
-        "category": application["category"],
-        "logo_url": None,
-        "banner_url": None,
-        "is_boosted": False,
-        "boosted_until": None,
-        "is_brand_of_week": False,
-        "created_at": datetime.now(timezone.utc)
-    }
-    result = await db.brands.insert_one(brand_doc)
-    
-    # Send approval notification
-    await create_notification(
-        user_id=application["user_id"],
-        brand_id=str(result.inserted_id),
-        notification_type="application_approved",
-        title="Application Approved!",
-        message=f"Congratulations! Your brand '{application['brand_name']}' has been approved on Unveiled Threads. You can now start adding products to your store.",
-        metadata={"brand_id": str(result.inserted_id)}
-    )
-    
-    return {"message": "Application approved", "brand_id": str(result.inserted_id)}
+    brand_id = await _finalise_approval(application_id, application, origin_url=str(request.base_url).rstrip("/"))
+    return {"message": "Application approved", "brand_id": brand_id}
 
 @api_router.post("/admin/applications/{application_id}/reject")
 async def reject_application(application_id: str, request: Request):

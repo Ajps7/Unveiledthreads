@@ -34,14 +34,15 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 8+ clothing categories
 
 ## Changelog (recent)
-- 2026-02: **Security hardening — critical fixes for public launch**:
-  1. **Stripe webhook signature verification**: Replaced `Event.construct_from` (which accepted any payload) with `stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)`. Returns 400 on signature mismatch. Falls back to unsigned-with-warning mode when `STRIPE_WEBHOOK_SECRET` is empty (dev). Webhook handler now returns 500 on unexpected errors (was 200 — would silently drop real events) so Stripe retries. Webhook also now properly handles `checkout.session.completed` for direct charges.
-  2. **Rate limiting via slowapi**: `/api/auth/login` 10/min, `/api/auth/register` 10/hour, `/api/auth/refresh` 30/min, `/api/connect/onboard` 10/min, `/api/orders/checkout` 20/min. Real client IP read from `X-Forwarded-For` (Kubernetes ingress proxy). Verified: 11th rapid login attempt → 429.
-  3. **Email enumeration fixed**: `/api/auth/register` now returns generic "Could not register account" instead of exposing whether the email exists.
-  - **⚠️ ACTION REQUIRED**: Before live launch, create a Stripe webhook at https://dashboard.stripe.com/webhooks pointing to `/api/webhook/stripe` (events: `account.updated`, `checkout.session.completed`, `payment_intent.succeeded`), copy the signing secret (`whsec_...`), and paste it into `STRIPE_WEBHOOK_SECRET` in `/app/backend/.env`. Without this, signature verification is bypassed (logged loudly).
-- 2026-02: **Stripe Connect switched to Direct Charges** (seller-liable). Sellers process payments on their own connected accounts; platform takes 4% via `application_fee_amount`. Chargebacks land on the seller.
-- 2026-02: **Shippo fully removed.** Vinted/Depop-style shipping. Brands ship via any carrier, enter tracking manually.
-- 2026-02: **Stripe Connect (Phases 1 + 2)** + **Boost paused as Coming Soon**.
+- 2026-02: **Hybrid auto-approval with risk scoring for seller onboarding**:
+  - New `calculate_application_risk()` computes a 0-100 score from: protected brand-name terms (Supreme/Nike/etc → +50), counterfeit keywords in description (wholesale/1:1/Yupoo/etc → +40), throwaway email domains (+30), account age < 24h (+15), short description / short or digit-heavy brand name (+10 each).
+  - Score < 20 (`AUTO_APPROVE_RISK_THRESHOLD`) → instant approval. Otherwise queued for admin.
+  - New `_finalise_approval()` helper shared by auto-approval + manual admin approval. Auto-creates Stripe Express Connect account on approval, generates `AccountLink` onboarding URL, and emails it to the new brand owner via Resend so they can finish KYC with one click (no need to log back in).
+  - Admin pending queue now sorted by risk score DESC. Each application shows a colour-coded badge (green/yellow/red) + a list of triggered risk flags. "Auto-approved" badge marks applications that bypassed manual review.
+  - Brand application success page now branches: "You're approved — check your email for the Stripe setup link" vs "We'll review within 24h" depending on outcome.
+- 2026-02: **Tracking links**: Buyer + brand order pages now show clickable "Track on Royal Mail / Evri / DPD..." links for known UK couriers. Lib at `/app/frontend/src/lib/courierTracking.js`.
+- 2026-02: **Security hardening**: Stripe webhook signature verification, slowapi rate limiting on auth + checkout endpoints, generic error message on register to prevent email enumeration.
+- 2026-02: **Stripe Connect Direct Charges** (seller-liable), Shippo removed, boost paused.
 - 2026-02: Stripe live test keys configured (sk_test_... backend, pk_test_... frontend). E2E verified: boost checkout + product purchase checkout both create real `cs_test_...` sessions against Stripe, status polling returns correct unpaid/paid state.
 - 2026-02: Fixed `emergentintegrations.get_checkout_status` Pydantic validation bug by bypassing the library for status polls and using direct Stripe SDK (`stripe.checkout.Session.retrieve` + `session.metadata.to_dict()`). Helper `get_stripe_session_status()` defined at top of server.py.
 - 2026-02: Switched `load_dotenv()` to `load_dotenv(override=True)` so `.env` always wins over pod-inherited env vars (pod was silently overriding STRIPE_API_KEY with `sk_test_emergent`).
