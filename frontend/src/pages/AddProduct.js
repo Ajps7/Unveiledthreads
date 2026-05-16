@@ -163,7 +163,7 @@ export default function AddProduct() {
             {form.images.length > 0 && (
               <div className="grid grid-cols-4 md:grid-cols-6 gap-3 mb-4">
                 {form.images.map((img, i) => (
-                  <div key={i} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
+                  <div key={img} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
                     <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt={`Product ${i+1}`} className="w-full h-full object-cover" />
                     {i === 0 && (
                       <span className="absolute top-1 left-1 bg-[#39FF14] text-black text-[8px] font-bold px-1.5 py-0.5">COVER</span>

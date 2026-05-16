@@ -260,7 +260,7 @@ export default function MyOrders() {
                     {order.shipping_updates?.length > 0 && (
                       <div className="mt-4 space-y-2">
                         {order.shipping_updates.map((update, i) => (
-                          <div key={i} className="flex gap-3 text-sm">
+                          <div key={`${update.timestamp}-${i}`} className="flex gap-3 text-sm">
                             <span className="text-[#9CA3AF] text-xs w-24 flex-shrink-0">
                               {new Date(update.timestamp).toLocaleDateString()}
                             </span>

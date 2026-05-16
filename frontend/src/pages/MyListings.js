@@ -316,7 +316,7 @@ export default function MyListings() {
               {(editForm.images || []).length > 0 && (
                 <div className="grid grid-cols-4 gap-2 mb-2">
                   {editForm.images.map((img, i) => (
-                    <div key={i} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
+                    <div key={img} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
                       <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt="" className="w-full h-full object-cover" />
                       <button type="button" onClick={() => setEditForm({ ...editForm, images: editForm.images.filter((_, idx) => idx !== i) })} className="absolute top-1 right-1 bg-black/70 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <X className="w-3 h-3" />

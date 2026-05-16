@@ -150,7 +150,7 @@ export default function ProductDetail() {
             {product.images?.length > 1 && (
               <div className="grid grid-cols-4 gap-2">
                 {product.images.slice(1).map((img, i) => (
-                  <div key={i} className="aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
+                  <div key={img} className="aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
                     <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt={`${product.name} ${i + 2}`} className="w-full h-full object-cover" />
                   </div>
                 ))}

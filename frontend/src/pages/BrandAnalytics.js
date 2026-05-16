@@ -25,7 +25,7 @@ function MiniBarChart({ data, dataKey, color = '#39FF14', height = 120 }) {
       {data.map((item, i) => {
         const barH = (item[dataKey] / maxVal) * height;
         return (
-          <div key={i} className="flex-1 flex flex-col items-center group relative">
+          <div key={item.date || i} className="flex-1 flex flex-col items-center group relative">
             <div
               className="w-full min-w-[4px] transition-all hover:opacity-80"
               style={{ height: Math.max(barH, 2), backgroundColor: color }}
@@ -175,7 +175,7 @@ export default function BrandAnalytics() {
                 {analytics.top_products.length > 0 ? (
                   <div className="space-y-3">
                     {analytics.top_products.map((p, i) => (
-                      <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                      <div key={p.id || p.name} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                         <div>
                           <span className="text-[#39FF14] text-xs mr-2">#{i + 1}</span>
                           <span className="text-white text-sm">{p.name}</span>
@@ -197,7 +197,7 @@ export default function BrandAnalytics() {
                 {analytics.top_viewed.length > 0 ? (
                   <div className="space-y-3">
                     {analytics.top_viewed.map((p, i) => (
-                      <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                      <div key={p.id || p.name} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                         <div>
                           <span className="text-[#C0C0C0] text-xs mr-2">#{i + 1}</span>
                           <span className="text-white text-sm">{p.name}</span>
