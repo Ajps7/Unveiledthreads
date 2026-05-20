@@ -86,7 +86,17 @@ export default function Register() {
 
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 mb-6" data-testid="register-error">
-              {error}
+              <div>{error}</div>
+              {typeof error === 'string' && error.toLowerCase().includes('already exists') && (
+                <div className="mt-2 flex gap-3 text-xs">
+                  <Link to="/login" className="text-[#39FF14] hover:underline uppercase tracking-wider" data-testid="error-login-link">
+                    Sign in instead
+                  </Link>
+                  <Link to="/forgot-password" className="text-[#39FF14] hover:underline uppercase tracking-wider" data-testid="error-forgot-link">
+                    Forgot password?
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 

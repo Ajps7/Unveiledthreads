@@ -34,7 +34,14 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 8+ clothing categories
 
 ## Changelog (recent)
-- 2026-02: **Production deployment fix — 2 blockers resolved**:
+- 2026-02: **Forgot-password / reset-password flow added**:
+  - `POST /api/auth/forgot-password` (5/hour rate-limited) — accepts email, generates `secrets.token_urlsafe(48)` token, stores SHA-256 hash with 1-hour expiry in new `password_reset_tokens` collection. Always returns generic "If an account exists..." to prevent email enumeration. Sends branded HTML email via Resend with reset link.
+  - `POST /api/auth/reset-password` (10/hour rate-limited) — consumes token + sets new bcrypt-hashed password, invalidates all other outstanding tokens for that user.
+  - New pages: `/forgot-password` and `/reset-password?token=...`. "Forgot password?" link added to Login page. When register fails with "email already exists", the error block now shows "Sign in instead" + "Forgot password?" inline links.
+  - Register error message softened from generic "Could not register account" to specific "An account with this email already exists" since we now offer a recovery path.
+  - MongoDB TTL index on `password_reset_tokens.expires_at` auto-purges old tokens after 7 days.
+  - **⚠️ Note**: Resend currently rejects sends to anyone other than `anthonygeorgiades2000@gmail.com` because no domain is verified. To go live, verify `unveiledthreads.co.uk` at https://resend.com/domains and update `SENDER_EMAIL` env var to e.g. `noreply@unveiledthreads.co.uk`. Until then password reset emails will fail to send for all users except the admin.
+- 2026-02: **Production deployment fix** — `load_dotenv()` no longer overrides Kubernetes env vars + CORS now reads `CORS_ORIGINS` allowlist.
   1. **`load_dotenv()` no longer overrides Kubernetes env vars**. Previous `load_dotenv(override=True)` was forcing the local `.env` `MONGO_URL=mongodb://localhost:27017` over the production Atlas URL injected by Emergent → backend startup crashed with `ServerSelectionTimeoutError`. Now defaults to non-override behaviour: deployment env vars take precedence, `.env` only fills in vars the platform hasn't set.
   2. **CORS now respects `CORS_ORIGINS` env var properly**. Old code only read `FRONTEND_URL` and ignored `CORS_ORIGINS`. New logic: if `CORS_ORIGINS="*"`, uses `allow_origin_regex=".*"` (works with credentials), else exact origin allowlist from comma-separated env var.
   - **⚠️ ACTION REQUIRED IN EMERGENT DEPLOYMENT SETTINGS**: Ensure these env vars are set on the production deployment: `MONGO_URL` (Atlas), `DB_NAME`, `JWT_SECRET`, `STRIPE_API_KEY` (real live key), `STRIPE_WEBHOOK_SECRET`, `CORS_ORIGINS=https://unveiledthreads.co.uk`, `FRONTEND_URL=https://unveiledthreads.co.uk`, `EMERGENT_LLM_KEY`, `RESEND_API_KEY`, `SENDER_EMAIL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `PLATFORM_FEE_PERCENT=4`.
