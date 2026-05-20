@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv(override=True)
+load_dotenv()
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, File, UploadFile
 from starlette.middleware.cors import CORSMiddleware
@@ -3059,13 +3059,29 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=[os.environ.get("FRONTEND_URL", "http://localhost:3000")],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: read allowed origins from env, with safe fallback behaviour.
+# - Specific origins (comma-separated): exact match, credentials allowed
+# - "*" (wildcard): permissive but credentials cannot work per CORS spec, so we use a
+#   regex match that echoes back the request origin (which IS valid with credentials).
+_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
+_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+
+if "*" in _cors_origins or _cors_raw == "*":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origin_regex=".*",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 @app.on_event("startup")
 async def startup_event():

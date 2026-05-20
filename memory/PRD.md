@@ -34,7 +34,12 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 8+ clothing categories
 
 ## Changelog (recent)
-- 2026-02: **Hybrid auto-approval with risk scoring for seller onboarding**:
+- 2026-02: **Production deployment fix — 2 blockers resolved**:
+  1. **`load_dotenv()` no longer overrides Kubernetes env vars**. Previous `load_dotenv(override=True)` was forcing the local `.env` `MONGO_URL=mongodb://localhost:27017` over the production Atlas URL injected by Emergent → backend startup crashed with `ServerSelectionTimeoutError`. Now defaults to non-override behaviour: deployment env vars take precedence, `.env` only fills in vars the platform hasn't set.
+  2. **CORS now respects `CORS_ORIGINS` env var properly**. Old code only read `FRONTEND_URL` and ignored `CORS_ORIGINS`. New logic: if `CORS_ORIGINS="*"`, uses `allow_origin_regex=".*"` (works with credentials), else exact origin allowlist from comma-separated env var.
+  - **⚠️ ACTION REQUIRED IN EMERGENT DEPLOYMENT SETTINGS**: Ensure these env vars are set on the production deployment: `MONGO_URL` (Atlas), `DB_NAME`, `JWT_SECRET`, `STRIPE_API_KEY` (real live key), `STRIPE_WEBHOOK_SECRET`, `CORS_ORIGINS=https://unveiledthreads.co.uk`, `FRONTEND_URL=https://unveiledthreads.co.uk`, `EMERGENT_LLM_KEY`, `RESEND_API_KEY`, `SENDER_EMAIL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `PLATFORM_FEE_PERCENT=4`.
+  - **⚠️ Side effect on preview**: In preview, the pod injects a placeholder `STRIPE_API_KEY=sk_test_emergent` which now wins over our `.env`. To test real Stripe in preview, set `STRIPE_API_KEY` via Emergent preview env settings (not `.env`).
+- 2026-02: Hybrid auto-approval with risk scoring + auto Stripe Connect onboarding.
   - New `calculate_application_risk()` computes a 0-100 score from: protected brand-name terms (Supreme/Nike/etc → +50), counterfeit keywords in description (wholesale/1:1/Yupoo/etc → +40), throwaway email domains (+30), account age < 24h (+15), short description / short or digit-heavy brand name (+10 each).
   - Score < 20 (`AUTO_APPROVE_RISK_THRESHOLD`) → instant approval. Otherwise queued for admin.
   - New `_finalise_approval()` helper shared by auto-approval + manual admin approval. Auto-creates Stripe Express Connect account on approval, generates `AccountLink` onboarding URL, and emails it to the new brand owner via Resend so they can finish KYC with one click (no need to log back in).
