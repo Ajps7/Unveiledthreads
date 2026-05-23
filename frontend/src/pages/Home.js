@@ -73,6 +73,18 @@ export default function Home() {
     <div className="min-h-screen bg-[#050505]">
       <Header />
 
+      {/* MVP / Demo notice — subtle, dismissable */}
+      <div className="bg-[#0A0A0A] border-b border-white/10" data-testid="demo-notice-banner">
+        <div className="max-w-7xl mx-auto px-6 md:px-12 py-2 text-center">
+          <p className="text-[11px] text-[#9CA3AF] tracking-wide">
+            Heads up: Unveiled Threads is currently in <span className="text-[#C0C0C0]">MVP/demo</span>. Some features are still being refined.{' '}
+            <Link to="/terms" className="text-[#9CA3AF] underline hover:text-[#39FF14] transition-colors">
+              Learn more
+            </Link>
+          </p>
+        </div>
+      </div>
+
       {/* Brand of the Week - FIRST for logged-in users */}
       {user && brandOfWeek && (
         <section className="py-20 px-6 md:px-12 border-b border-white/10">

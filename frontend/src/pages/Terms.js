@@ -14,7 +14,15 @@ export default function Terms() {
         <h1 className="text-3xl md:text-4xl font-black tracking-tighter uppercase mb-2 text-white" style={{ fontFamily: 'Clash Display, sans-serif' }} data-testid="terms-title">
           TERMS & CONDITIONS
         </h1>
-        <p className="text-sm text-[#9CA3AF] mb-10">Last updated: April 2026</p>
+        <p className="text-sm text-[#9CA3AF] mb-6">Last updated: April 2026</p>
+
+        {/* MVP / Demo disclosure — prominent so initial audience is informed */}
+        <div className="mb-10 border border-yellow-500/30 bg-yellow-500/5 p-4" data-testid="terms-mvp-notice">
+          <p className="text-xs uppercase tracking-[0.2em] text-yellow-400 mb-2 font-bold">MVP / Demo notice</p>
+          <p className="text-[#C0C0C0] leading-relaxed text-sm">
+            Unveiled Threads is currently operating in an early <strong className="text-white">MVP (Minimum Viable Product) / demo</strong> state. While the platform is fully functional — including payments, brand onboarding and order fulfilment — some features may be incomplete, change without notice, or be temporarily unavailable while we polish them based on early feedback. We are working closely with our first cohort of brands and buyers to build something genuinely useful for the UK independent streetwear scene. By using the Platform during this phase, you acknowledge that the experience may evolve quickly and that we reserve the right to refine features, pricing, and processes as we learn what works best for our community.
+          </p>
+        </div>
 
         <div className="space-y-10 text-[#C0C0C0] text-sm leading-relaxed">
 
