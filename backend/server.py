@@ -908,6 +908,66 @@ async def get_all_applications(request: Request, status: Optional[str] = None):
     
     return result
 
+@api_router.post("/admin/wipe-demo-data")
+async def wipe_demo_data(request: Request):
+    """One-shot endpoint to delete all products, brands, and brand applications.
+    Used to clear seed/demo data before opening to real buyers.
+    Keeps user accounts intact (former brand owners become regular users).
+    
+    REQUIRES admin authentication.
+    """
+    await require_admin(request)
+    
+    # Snapshot counts so the caller can verify
+    products_count = await db.products.count_documents({})
+    brands_count = await db.brands.count_documents({})
+    apps_count = await db.brand_applications.count_documents({})
+    
+    # Refuse to nuke if there are any real paid orders — protects accidental data loss
+    paid_order_count = await db.orders.count_documents(
+        {"status": {"$in": ["paid", "shipped", "delivered"]}}
+    )
+    if paid_order_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to wipe: {paid_order_count} real paid order(s) exist. Manual cleanup required.",
+        )
+    
+    # Cascade delete: anything depending on brand/product IDs
+    deleted_products = (await db.products.delete_many({})).deleted_count
+    deleted_brands = (await db.brands.delete_many({})).deleted_count
+    deleted_apps = (await db.brand_applications.delete_many({})).deleted_count
+    deleted_reviews = (await db.reviews.delete_many({})).deleted_count if 'reviews' in await db.list_collection_names() else 0
+    deleted_wishlists = (await db.wishlists.delete_many({})).deleted_count if 'wishlists' in await db.list_collection_names() else 0
+    deleted_comments = (await db.product_comments.delete_many({})).deleted_count if 'product_comments' in await db.list_collection_names() else 0
+    deleted_orders = (await db.orders.delete_many({})).deleted_count  # only initiated/unpaid by this point
+    
+    # Downgrade any users with role=brand back to regular user
+    downgraded = (await db.users.update_many(
+        {"role": "brand"},
+        {"$set": {"role": "user"}},
+    )).modified_count
+    
+    return {
+        "wiped": {
+            "products": deleted_products,
+            "brands": deleted_brands,
+            "brand_applications": deleted_apps,
+            "reviews": deleted_reviews,
+            "wishlists": deleted_wishlists,
+            "product_comments": deleted_comments,
+            "unpaid_orders": deleted_orders,
+            "users_downgraded_to_buyer": downgraded,
+        },
+        "before": {
+            "products": products_count,
+            "brands": brands_count,
+            "brand_applications": apps_count,
+        },
+        "message": "Demo data wiped. User accounts preserved (brand owners downgraded to buyer role).",
+    }
+
+
 @api_router.post("/admin/applications/{application_id}/approve")
 async def approve_application(application_id: str, request: Request):
     await require_admin(request)
