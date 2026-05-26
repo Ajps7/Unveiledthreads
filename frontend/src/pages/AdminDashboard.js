@@ -22,7 +22,8 @@ import {
   Zap,
   Crown,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -33,9 +34,11 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [applications, setApplications] = useState([]);
   const [brands, setBrands] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [processing, setProcessing] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -58,16 +61,51 @@ export default function AdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const [statsRes, brandsRes] = await Promise.all([
+      const [statsRes, brandsRes, productsRes] = await Promise.all([
         axios.get(`${API}/api/admin/stats`, { withCredentials: true }),
-        axios.get(`${API}/api/brands`)
+        axios.get(`${API}/api/brands`),
+        axios.get(`${API}/api/products?limit=200`),
       ]);
       setStats(statsRes.data);
       setBrands(brandsRes.data);
+      setProducts(productsRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteBrand = async (brand) => {
+    const confirmText = `delete ${brand.brand_name}`;
+    const answer = window.prompt(
+      `This will permanently delete "${brand.brand_name}", all its products, reviews and unpaid orders.\n\nType "${confirmText}" to confirm:`
+    );
+    if (answer !== confirmText) {
+      if (answer !== null) alert('Confirmation text did not match. Brand was NOT deleted.');
+      return;
+    }
+    setDeletingId(`brand-${brand.id}`);
+    try {
+      await axios.delete(`${API}/api/admin/brands/${brand.id}`, { withCredentials: true });
+      await fetchData();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to delete brand.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteProduct = async (product) => {
+    if (!window.confirm(`Delete "${product.name}" (£${product.price}) by ${product.brand_name}?`)) return;
+    setDeletingId(`product-${product.id}`);
+    try {
+      await axios.delete(`${API}/api/admin/products/${product.id}`, { withCredentials: true });
+      await fetchData();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to delete product.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -339,11 +377,82 @@ export default function AdminDashboard() {
                         Set BOW
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2"
+                      onClick={() => handleDeleteBrand(brand)}
+                      disabled={deletingId === `brand-${brand.id}`}
+                      data-testid={`delete-brand-${brand.id}`}
+                      title="Delete brand and all its products"
+                    >
+                      {deletingId === `brand-${brand.id}`
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Trash2 className="w-4 h-4" />}
+                    </Button>
                   </div>
                 </div>
               ))}
             </div>
           </div>
+        </div>
+
+        {/* All Products — admin can delete any listing */}
+        <div className="mt-12 border border-white/10 bg-[#0A0A0A] p-6">
+          <h2
+            className="text-xl font-bold text-white uppercase mb-4 flex items-center gap-2"
+            style={{ fontFamily: 'Clash Display, sans-serif' }}
+            data-testid="admin-products-heading"
+          >
+            <Package className="w-5 h-5 text-[#39FF14]" />
+            All Products ({products.length})
+          </h2>
+          {products.length === 0 ? (
+            <p className="text-sm text-[#9CA3AF]">No products listed.</p>
+          ) : (
+            <div className="space-y-2 max-h-[600px] overflow-y-auto" data-testid="admin-products-list">
+              {products.map((p) => (
+                <div key={p.id} className="border border-white/5 bg-[#0F0F0F] p-3 flex items-center gap-3">
+                  <div className="w-12 h-12 overflow-hidden bg-[#050505] flex-shrink-0">
+                    {p.images?.[0] ? (
+                      <img
+                        src={p.images[0].startsWith('/api/') ? `${API}${p.images[0]}` : p.images[0]}
+                        alt={p.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[#39FF14]">
+                        <Package className="w-4 h-4" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{p.name}</p>
+                    <p className="text-xs text-[#9CA3AF]">
+                      {p.brand_name} · £{p.price?.toFixed?.(2) ?? p.price} · stock {p.stock ?? 0}
+                    </p>
+                  </div>
+                  <Link to={`/products/${p.id}`}>
+                    <Button variant="ghost" size="sm" className="text-[#9CA3AF] hover:text-white p-2">
+                      <ExternalLink className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2"
+                    onClick={() => handleDeleteProduct(p)}
+                    disabled={deletingId === `product-${p.id}`}
+                    data-testid={`delete-product-${p.id}`}
+                  >
+                    {deletingId === `product-${p.id}`
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Trash2 className="w-4 h-4" />}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

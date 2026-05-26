@@ -1324,6 +1324,87 @@ async def update_product(product_id: str, request: Request):
     
     return updated
 
+@api_router.delete("/admin/brands/{brand_id}")
+async def admin_delete_brand(brand_id: str, request: Request):
+    """Admin-only: delete a brand and cascade-delete its products, reviews, comments,
+    wishlist entries, and unpaid orders. Demotes the brand owner back to a regular user.
+    Refuses if the brand has paid/shipped/delivered orders to protect customer data."""
+    await require_admin(request)
+    
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    paid_orders = await db.orders.count_documents({
+        "brand_id": brand_id,
+        "status": {"$in": ["paid", "shipped", "delivered"]},
+    })
+    if paid_orders > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to delete: {paid_orders} paid/shipped order(s) exist for this brand. Resolve customer orders first.",
+        )
+    
+    # Cascade
+    product_ids = [str(p["_id"]) async for p in db.products.find({"brand_id": brand_id}, {"_id": 1})]
+    deleted_products = (await db.products.delete_many({"brand_id": brand_id})).deleted_count
+    deleted_unpaid_orders = (await db.orders.delete_many({"brand_id": brand_id})).deleted_count
+    deleted_reviews = (await db.reviews.delete_many({"brand_id": brand_id})).deleted_count
+    if product_ids:
+        await db.product_comments.delete_many({"product_id": {"$in": product_ids}})
+        await db.wishlists.delete_many({"product_id": {"$in": product_ids}})
+    
+    # Withdraw any pending brand applications from this user
+    await db.brand_applications.delete_many({"user_id": brand["user_id"]})
+    
+    # Demote the brand owner back to buyer (preserves their user account + buying history)
+    owner_id = brand.get("user_id")
+    if owner_id:
+        await db.users.update_one(
+            {"_id": ObjectId(owner_id), "role": "brand"},
+            {"$set": {"role": "user"}},
+        )
+    
+    await db.brands.delete_one({"_id": safe_object_id(brand_id)})
+    
+    return {
+        "message": f"Brand '{brand['brand_name']}' deleted",
+        "deleted": {
+            "products": deleted_products,
+            "unpaid_orders": deleted_unpaid_orders,
+            "reviews": deleted_reviews,
+        },
+    }
+
+
+@api_router.delete("/admin/products/{product_id}")
+async def admin_delete_product(product_id: str, request: Request):
+    """Admin-only: delete any product regardless of owner.
+    Cleans up product comments and wishlist entries that reference it."""
+    await require_admin(request)
+    
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    paid_orders = await db.orders.count_documents({
+        "product_id": product_id,
+        "status": {"$in": ["paid", "shipped", "delivered"]},
+    })
+    if paid_orders > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Refusing to delete: {paid_orders} paid/shipped order(s) reference this product.",
+        )
+    
+    await db.products.delete_one({"_id": safe_object_id(product_id)})
+    await db.product_comments.delete_many({"product_id": product_id})
+    await db.wishlists.delete_many({"product_id": product_id})
+    await db.orders.delete_many({"product_id": product_id})  # only unpaid by this point
+    
+    return {"message": f"Product '{product['name']}' deleted"}
+
+
 @api_router.delete("/products/{product_id}")
 async def delete_product(product_id: str, request: Request):
     user = await require_brand(request)
