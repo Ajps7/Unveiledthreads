@@ -9,17 +9,21 @@ import ProductCard from '../components/ProductCard';
 const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function BrandProfile() {
-  const { id } = useParams();
+  const { id, slug } = useParams();
   const [brand, setBrand] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchBrand();
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, slug]);
 
   const fetchBrand = async () => {
     try {
-      const response = await axios.get(`${API}/api/brands/${id}`);
+      const url = slug
+        ? `${API}/api/brands/by-slug/${encodeURIComponent(slug)}`
+        : `${API}/api/brands/${id}`;
+      const response = await axios.get(url);
       setBrand(response.data);
     } catch (error) {
       console.error('Error fetching brand:', error);

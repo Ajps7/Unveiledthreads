@@ -384,6 +384,54 @@ BOOST_PACKAGES = {
     "quarterly": {"id": "quarterly", "name": "Quarterly Boost", "duration_days": 90, "price": 69.99, "description": "90 days of maximum exposure"},
 }
 
+# ============ BRAND SLUG (vanity store URLs) ============
+
+# Slugs collide with reserved frontend routes. Blocklist before generation/admin edits.
+SLUG_RESERVED = {
+    "admin", "login", "register", "logout", "products", "brands", "shop",
+    "store", "cart", "checkout", "orders", "wishlist", "community",
+    "messages", "notifications", "settings", "terms", "privacy", "about",
+    "help", "contact", "apply", "dashboard", "api", "static", "assets",
+    "favicon", "robots", "sitemap", "forgot-password", "reset-password",
+    "order", "brand", "referrals",
+}
+
+
+def _normalise_slug_candidate(text: str) -> str:
+    """Strip to lowercase a-z, 0-9, dashes. Collapse multiple dashes."""
+    import re
+    text = (text or "").lower().strip()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-")
+    return text[:40]
+
+
+async def generate_unique_slug(brand_name: str, exclude_brand_id: Optional[str] = None) -> str:
+    """Generate a URL-safe, unique slug for a brand. Appends -2, -3... on collision.
+    `exclude_brand_id` lets the same brand keep its own slug during edits."""
+    base = _normalise_slug_candidate(brand_name) or "brand"
+    if base in SLUG_RESERVED:
+        base = f"{base}-store"
+    
+    candidate = base
+    suffix = 2
+    while True:
+        query = {"slug": candidate}
+        if exclude_brand_id:
+            try:
+                query["_id"] = {"$ne": ObjectId(exclude_brand_id)}
+            except Exception:
+                pass
+        existing = await db.brands.find_one(query, {"_id": 1})
+        if not existing:
+            return candidate
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+        if suffix > 999:
+            # Pathological fallback — should never hit in practice
+            import secrets
+            return f"{base}-{secrets.token_hex(3)}"
+
 # ============ APPLICATION RISK SCORING & AUTO-APPROVAL ============
 
 AUTO_APPROVE_RISK_THRESHOLD = 20  # score < this → auto-approve
@@ -489,10 +537,12 @@ async def _finalise_approval(application_id, application, origin_url):
             {"$set": {"role": "brand"}}
         )
     
-    # 3. Create brand profile
+    # 3. Create brand profile (with unique vanity slug for /@slug URLs)
+    slug = await generate_unique_slug(application["brand_name"])
     brand_doc = {
         "user_id": user_id_str,
         "brand_name": application["brand_name"],
+        "slug": slug,
         "description": application["description"],
         "instagram_handle": application.get("instagram_handle"),
         "website": application.get("website"),
@@ -1065,6 +1115,48 @@ async def get_brand_of_week():
         del brand["_id"]
         return brand
     return None
+
+@api_router.get("/brands/by-slug/{slug}")
+async def get_brand_by_slug(slug: str):
+    """Public lookup for `/@slug` vanity URLs. Case-insensitive."""
+    slug_norm = _normalise_slug_candidate(slug)
+    brand = await db.brands.find_one({"slug": slug_norm})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    brand["id"] = str(brand["_id"])
+    del brand["_id"]
+    products = await db.products.find({"brand_id": brand["id"]}).sort("created_at", -1).to_list(50)
+    for product in products:
+        product["id"] = str(product["_id"])
+        del product["_id"]
+    brand["products"] = products
+    return brand
+
+
+class AdminSlugUpdateRequest(BaseModel):
+    slug: str
+
+@api_router.put("/admin/brands/{brand_id}/slug")
+async def admin_update_brand_slug(brand_id: str, payload: AdminSlugUpdateRequest, request: Request):
+    """Admin-only: change a brand's vanity slug. Validates uniqueness + reserved words."""
+    await require_admin(request)
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    candidate = _normalise_slug_candidate(payload.slug)
+    if not candidate:
+        raise HTTPException(status_code=400, detail="Slug must contain at least one letter or number")
+    if candidate in SLUG_RESERVED:
+        raise HTTPException(status_code=400, detail=f"'{candidate}' is a reserved name. Pick another.")
+    existing = await db.brands.find_one({"slug": candidate, "_id": {"$ne": safe_object_id(brand_id)}}, {"_id": 1})
+    if existing:
+        raise HTTPException(status_code=400, detail="That slug is already taken.")
+    
+    await db.brands.update_one({"_id": safe_object_id(brand_id)}, {"$set": {"slug": candidate}})
+    return {"slug": candidate, "url_path": f"/@{candidate}"}
+
 
 @api_router.get("/brands/{brand_id}")
 async def get_brand(brand_id: str):
@@ -3387,6 +3479,12 @@ async def startup_event():
     await db.password_reset_tokens.create_index("token_hash", unique=True)
     await db.password_reset_tokens.create_index("user_id")
     await db.password_reset_tokens.create_index("expires_at", expireAfterSeconds=86400 * 7)
+    # Brand slug: unique sparse index for /@slug vanity URLs
+    await db.brands.create_index("slug", unique=True, sparse=True)
+    # Back-fill slugs for any pre-existing brands missing one (idempotent)
+    async for b in db.brands.find({"$or": [{"slug": {"$exists": False}}, {"slug": None}, {"slug": ""}]}):
+        new_slug = await generate_unique_slug(b.get("brand_name") or "brand", exclude_brand_id=str(b["_id"]))
+        await db.brands.update_one({"_id": b["_id"]}, {"$set": {"slug": new_slug}})
     
     # Init object storage
     try:

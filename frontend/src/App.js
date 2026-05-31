@@ -44,6 +44,7 @@ function App() {
             <Route path="/products/:id" element={<ProductDetail />} />
             <Route path="/brands" element={<Brands />} />
             <Route path="/brands/:id" element={<BrandProfile />} />
+            <Route path="/@:slug" element={<BrandProfile />} />
             <Route path="/apply" element={<BrandApplication />} />
             <Route path="/brand/dashboard" element={<BrandDashboard />} />
             <Route path="/brand/products" element={<MyListings />} />
