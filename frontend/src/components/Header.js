@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { User, LogOut, ShoppingBag, LayoutDashboard, Shield, Menu, X, Heart, Bell, BarChart3, Package, MessageSquare, Gift } from 'lucide-react';
+import { User, LogOut, ShoppingBag, LayoutDashboard, Shield, Menu, X, Heart, Bell, BarChart3, Package, MessageSquare, Gift, ShieldCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -196,6 +196,14 @@ export default function Header() {
                   >
                     <Gift className="w-4 h-4 mr-2" />
                     Refer & Earn
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    className="text-[#C0C0C0] hover:text-white hover:bg-white/5 rounded-none cursor-pointer"
+                    onClick={() => navigate('/account')}
+                    data-testid="account-link"
+                  >
+                    <ShieldCheck className="w-4 h-4 mr-2" />
+                    Account & Privacy
                   </DropdownMenuItem>
                   
                   {user.role === 'admin' && (

@@ -59,6 +59,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 2026-02: Fixed `emergentintegrations.get_checkout_status` Pydantic validation bug by bypassing the library for status polls and using direct Stripe SDK (`stripe.checkout.Session.retrieve` + `session.metadata.to_dict()`). Helper `get_stripe_session_status()` defined at top of server.py.
 - 2026-02: Switched `load_dotenv()` to `load_dotenv(override=True)` so `.env` always wins over pod-inherited env vars (pod was silently overriding STRIPE_API_KEY with `sk_test_emergent`).
 - 2026-02: Verified Referrals "Coming Soon" redirect page renders correctly
+- 2026-02: **GDPR Compliance Pass 1** — added `/privacy` Privacy Policy page (UK GDPR/DPA 2018 compliant), `/account` settings page with self-service Data Export (Art. 20) and Account Deletion (Art. 17), and a strictly-necessary cookies banner. Backend: `GET /api/account/export` returns full JSON dump (excluding `_id`/`password_hash`), `POST /api/account/delete` requires password + "DELETE" confirmation, cascades across all collections, anonymises orders for HMRC retention.
 - Earlier: Platform fee set to 4%; Instagram & website removed from brand profiles; admin credentials updated; T&Cs; community + advanced filters
 
 ## Roadmap
@@ -69,7 +70,8 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - Stripe Connect Phase 3 (Payouts widget on Brand Dashboard)
 - Stripe Connect Phase 4 (refunds with `reverse_transfer=True`)
 - Push notifications (currently short-polling)
-- Refactor `server.py` into modular routes (it's ~3000 lines)
+- Refactor `server.py` into modular routes (it's ~3500 lines)
+- **GDPR Hardening Pass 2**: Admin 2FA (TOTP), field-level encryption for shipping addresses at rest, log redaction middleware, ICO registration reminder in admin panel, DPA template links for Stripe/Resend/Atlas.
 
 ## Credentials
 See `/app/memory/test_credentials.md`.

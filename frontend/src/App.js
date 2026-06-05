@@ -27,7 +27,10 @@ import Messages from "./pages/Messages";
 import Notifications from "./pages/Notifications";
 import Community from "./pages/Community";
 import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Account from "./pages/Account";
 import AdminDashboard from "./pages/AdminDashboard";
+import CookieBanner from "./components/CookieBanner";
 
 function App() {
   return (
@@ -59,8 +62,11 @@ function App() {
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/community" element={<Community />} />
             <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/account" element={<Account />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
+          <CookieBanner />
         </BrowserRouter>
         <Toaster />
       </div>
