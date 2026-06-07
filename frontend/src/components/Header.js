@@ -29,7 +29,13 @@ export default function Header() {
         const res = await axios.get(`${API}/api/notifications/poll`, { withCredentials: true });
         setUnreadCount(res.data.notifications);
         setUnreadMessages(res.data.messages);
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        // Polling failures are non-critical (user may be offline / token may have expired).
+        // Don't surface as a toast — but log so we can spot a backend regression in DevTools.
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('Notification poll failed:', e?.response?.status || e?.message);
+        }
+      }
     };
     
     poll();

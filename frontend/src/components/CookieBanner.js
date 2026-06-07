@@ -14,11 +14,20 @@ export default function CookieBanner() {
         const t = setTimeout(() => setVisible(true), 800);
         return () => clearTimeout(t);
       }
-    } catch (_) { /* localStorage blocked — silently skip */ }
+    } catch (e) {
+      // localStorage can throw in Safari private mode / when blocked.
+      // Don't fail loud — log for debugging and skip the banner this session.
+      console.warn('CookieBanner: localStorage unavailable', e);
+    }
   }, []);
 
   const acknowledge = () => {
-    try { localStorage.setItem(STORAGE_KEY, new Date().toISOString()); } catch (_) {}
+    try {
+      localStorage.setItem(STORAGE_KEY, new Date().toISOString());
+    } catch (e) {
+      // Storage may be blocked — banner will re-appear next visit, which is acceptable
+      console.warn('CookieBanner: could not persist acknowledgement', e);
+    }
     setVisible(false);
   };
 
