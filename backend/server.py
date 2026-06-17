@@ -2085,6 +2085,8 @@ async def get_admin_stats(request: Request):
     await require_admin(request)
     
     total_users = await db.users.count_documents({})
+    total_buyers = await db.users.count_documents({"role": "user"})
+    total_brand_owners = await db.users.count_documents({"role": "brand"})
     total_brands = await db.brands.count_documents({})
     total_products = await db.products.count_documents({})
     pending_applications = await db.brand_applications.count_documents({"status": "pending"})
@@ -2097,6 +2099,8 @@ async def get_admin_stats(request: Request):
     
     return {
         "total_users": total_users,
+        "total_buyers": total_buyers,
+        "total_brand_owners": total_brand_owners,
         "total_brands": total_brands,
         "total_products": total_products,
         "pending_applications": pending_applications,

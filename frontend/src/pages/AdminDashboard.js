@@ -245,8 +245,11 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-12">
             <div className="border border-white/10 p-6 bg-[#0A0A0A]">
               <Users className="w-6 h-6 text-[#9CA3AF] mb-2" />
-              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-1">Total Users</p>
-              <p className="text-2xl font-bold text-white" data-testid="stat-users">{stats.total_users}</p>
+              <p className="text-xs text-[#9CA3AF] uppercase tracking-wider mb-1">Buyers</p>
+              <p className="text-2xl font-bold text-white" data-testid="stat-buyers">{stats.total_buyers ?? 0}</p>
+              <p className="text-[10px] text-[#6B7280] uppercase tracking-wider mt-1" data-testid="stat-users-breakdown">
+                {stats.total_users} total acc · {stats.total_brand_owners ?? 0} brand owner{(stats.total_brand_owners ?? 0) === 1 ? '' : 's'}
+              </p>
             </div>
             <div className="border border-white/10 p-6 bg-[#0A0A0A]">
               <Package className="w-6 h-6 text-[#9CA3AF] mb-2" />
