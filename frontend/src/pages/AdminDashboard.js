@@ -32,6 +32,7 @@ export default function AdminDashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
+  const [sellerCap, setSellerCap] = useState(null);
   const [applications, setApplications] = useState([]);
   const [brands, setBrands] = useState([]);
   const [products, setProducts] = useState([]);
@@ -61,14 +62,16 @@ export default function AdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const [statsRes, brandsRes, productsRes] = await Promise.all([
+      const [statsRes, brandsRes, productsRes, capRes] = await Promise.all([
         axios.get(`${API}/api/admin/stats`, { withCredentials: true }),
         axios.get(`${API}/api/brands`),
         axios.get(`${API}/api/products?limit=200`),
+        axios.get(`${API}/api/admin/seller-cap`, { withCredentials: true }),
       ]);
       setStats(statsRes.data);
       setBrands(brandsRes.data);
       setProducts(productsRes.data);
+      setSellerCap(capRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -187,6 +190,56 @@ export default function AdminDashboard() {
           </h1>
         </div>
 
+        {/* MVP Seller Cap */}
+        {sellerCap && (
+          <div
+            className={`mb-6 border p-5 flex items-center justify-between gap-4 flex-wrap ${
+              sellerCap.cap_reached
+                ? 'border-red-500/40 bg-red-500/5'
+                : sellerCap.remaining <= 5
+                ? 'border-yellow-500/40 bg-yellow-500/5'
+                : 'border-[#39FF14]/30 bg-[#39FF14]/5'
+            }`}
+            data-testid="seller-cap-banner"
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className={`text-3xl font-black tabular-nums ${
+                  sellerCap.cap_reached
+                    ? 'text-red-300'
+                    : sellerCap.remaining <= 5
+                    ? 'text-yellow-300'
+                    : 'text-[#39FF14]'
+                }`}
+                style={{ fontFamily: 'Clash Display, sans-serif' }}
+                data-testid="seller-cap-count"
+              >
+                {sellerCap.used} / {sellerCap.max}
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[#C0C0C0] font-bold mb-1">
+                  MVP Seller Slots
+                </p>
+                <p className="text-sm text-[#9CA3AF]">
+                  {sellerCap.cap_reached
+                    ? `Cap reached. ${sellerCap.waitlisted} application(s) waitlisted. Remove a brand or raise MAX_SELLER_ACCOUNTS to open a slot.`
+                    : sellerCap.remaining <= 5
+                    ? `Only ${sellerCap.remaining} slot(s) left before applications go to the waitlist.`
+                    : `${sellerCap.remaining} slot(s) available before applications go to the waitlist.`}
+                </p>
+              </div>
+            </div>
+            {sellerCap.waitlisted > 0 && (
+              <span
+                className="text-xs uppercase tracking-wider px-3 py-1 bg-yellow-500/10 text-yellow-300 border border-yellow-500/30"
+                data-testid="seller-cap-waitlisted"
+              >
+                {sellerCap.waitlisted} waitlisted
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Stats */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-12">
@@ -234,6 +287,7 @@ export default function AdminDashboard() {
                 </SelectTrigger>
                 <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
                   <SelectItem value="pending" className="text-white hover:bg-white/10 rounded-none">Pending</SelectItem>
+                  <SelectItem value="waitlisted" className="text-white hover:bg-white/10 rounded-none">Waitlisted</SelectItem>
                   <SelectItem value="approved" className="text-white hover:bg-white/10 rounded-none">Approved</SelectItem>
                   <SelectItem value="rejected" className="text-white hover:bg-white/10 rounded-none">Rejected</SelectItem>
                 </SelectContent>

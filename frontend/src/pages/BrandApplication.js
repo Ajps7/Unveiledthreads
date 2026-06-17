@@ -90,6 +90,20 @@ export default function BrandApplication() {
 
   if (success) {
     const autoApproved = applyResult?.auto_approved;
+    const waitlisted = applyResult?.waitlisted;
+    let title = 'APPLICATION SUBMITTED';
+    let message = "Thanks for applying to Unveiled Threads. Our team will review your application within 24 hours and email you when it's been approved.";
+    let ctaText = 'Back to Home';
+    let ctaTo = '/';
+    if (autoApproved) {
+      title = "YOU'RE APPROVED";
+      message = "Your brand has been approved instantly. Check your inbox — we've emailed you a one-click link to finish your secure Stripe payout setup so you can start selling today.";
+      ctaText = 'Go to Brand Dashboard';
+      ctaTo = '/brand/dashboard';
+    } else if (waitlisted) {
+      title = "YOU'RE ON THE WAITLIST";
+      message = "We're capping the platform at a small number of sellers during our MVP phase to make sure every brand gets proper attention. We've saved your application — we'll email you the moment a slot opens up.";
+    }
     return (
       <div className="min-h-screen bg-[#050505]">
         <Header />
@@ -100,16 +114,14 @@ export default function BrandApplication() {
             style={{ fontFamily: 'Clash Display, sans-serif' }}
             data-testid="apply-success-title"
           >
-            {autoApproved ? 'YOU\'RE APPROVED' : 'APPLICATION SUBMITTED'}
+            {title}
           </h1>
           <p className="text-[#9CA3AF] mb-8" data-testid="apply-success-message">
-            {autoApproved
-              ? "Your brand has been approved instantly. Check your inbox — we've emailed you a one-click link to finish your secure Stripe payout setup so you can start selling today."
-              : "Thanks for applying to Unveiled Threads. Our team will review your application within 24 hours and email you when it's been approved."}
+            {message}
           </p>
-          <Link to={autoApproved ? '/brand/dashboard' : '/'}>
+          <Link to={ctaTo}>
             <Button className="btn-primary" data-testid="back-to-home-button">
-              {autoApproved ? 'Go to Brand Dashboard' : 'Back to Home'}
+              {ctaText}
             </Button>
           </Link>
         </div>

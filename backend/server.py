@@ -435,6 +435,20 @@ async def generate_unique_slug(brand_name: str, exclude_brand_id: Optional[str] 
 # ============ APPLICATION RISK SCORING & AUTO-APPROVAL ============
 
 AUTO_APPROVE_RISK_THRESHOLD = 20  # score < this → auto-approve
+# MVP seller cap — keep platform small while we observe early seller behaviour and shipping ops.
+# Configurable via env so we can lift it without a code change.
+MAX_SELLER_ACCOUNTS = int(os.environ.get("MAX_SELLER_ACCOUNTS", "40"))
+
+
+async def _seller_slots_used() -> int:
+    """Count of live brand profiles (each represents a seller account)."""
+    return await db.brands.count_documents({})
+
+
+async def _seller_cap_reached() -> bool:
+    return (await _seller_slots_used()) >= MAX_SELLER_ACCOUNTS
+
+
 PROTECTED_BRAND_TERMS = [
     "supreme", "nike", "adidas", "off-white", "off white", "stussy", "stüssy",
     "palace", "yeezy", "balenciaga", "gucci", "louis vuitton", "lv ", "prada",
@@ -516,6 +530,16 @@ async def _finalise_approval(application_id, application, origin_url):
     3. creates brand profile, 4. creates Stripe Connect account + onboarding link,
     5. sends approval email with Stripe link.
     Returns: brand_id (str)."""
+    # MVP seller cap — protects both auto-approval and admin manual approval paths.
+    if await _seller_cap_reached():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Seller cap reached ({MAX_SELLER_ACCOUNTS} brands). "
+                "This application has been kept on the waitlist. "
+                "Raise MAX_SELLER_ACCOUNTS or remove an existing brand to free a slot."
+            ),
+        )
     user_id_str = application["user_id"]
     user_object_id = ObjectId(user_id_str)
     
@@ -1011,6 +1035,7 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
     
     # Hybrid auto-approval: compute risk score from application + applicant signals
     risk_score, risk_reasons = calculate_application_risk(application, user)
+    cap_reached = await _seller_cap_reached()
     
     app_doc = {
         "user_id": user["id"],
@@ -1020,7 +1045,7 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
         "website": application.website,
         "location": application.location,
         "category": application.category,
-        "status": "pending",
+        "status": "waitlisted" if cap_reached else "pending",
         "risk_score": risk_score,
         "risk_reasons": risk_reasons,
         "created_at": datetime.now(timezone.utc)
@@ -1028,20 +1053,27 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
     result = await db.brand_applications.insert_one(app_doc)
     application_id = str(result.inserted_id)
     
-    # Auto-approve only if score is low. Otherwise queue for admin review.
+    # Auto-approve only if score is low AND cap isn't reached. Otherwise queue/waitlist.
     auto_approved = False
-    if risk_score < AUTO_APPROVE_RISK_THRESHOLD:
+    if not cap_reached and risk_score < AUTO_APPROVE_RISK_THRESHOLD:
         await _finalise_approval(application_id, app_doc, origin_url=str(request.base_url).rstrip("/"))
         auto_approved = True
     
+    if cap_reached:
+        message = (
+            f"Thanks — you're on the waitlist. We're capping the platform at "
+            f"{MAX_SELLER_ACCOUNTS} sellers during our MVP phase. We'll email you the moment a slot opens up."
+        )
+    elif auto_approved:
+        message = "Application approved instantly — check your email to finish Stripe payout setup."
+    else:
+        message = "Application submitted. Our team will review it shortly."
+    
     return {
         "id": application_id,
-        "message": (
-            "Application approved instantly — check your email to finish Stripe payout setup."
-            if auto_approved
-            else "Application submitted. Our team will review it shortly."
-        ),
+        "message": message,
         "auto_approved": auto_approved,
+        "waitlisted": cap_reached,
         "risk_score": risk_score,
     }
 
@@ -1103,6 +1135,21 @@ async def get_all_applications(request: Request, status: Optional[str] = None):
         result.append(app)
     
     return result
+
+
+@api_router.get("/admin/seller-cap")
+async def get_seller_cap(request: Request):
+    """MVP seller cap status — used by admin dashboard counter."""
+    await require_admin(request)
+    used = await _seller_slots_used()
+    waitlisted = await db.brand_applications.count_documents({"status": "waitlisted"})
+    return {
+        "used": used,
+        "max": MAX_SELLER_ACCOUNTS,
+        "remaining": max(0, MAX_SELLER_ACCOUNTS - used),
+        "cap_reached": used >= MAX_SELLER_ACCOUNTS,
+        "waitlisted": waitlisted,
+    }
 
 @api_router.post("/admin/wipe-demo-data")
 async def wipe_demo_data(request: Request):
@@ -1172,7 +1219,9 @@ async def approve_application(application_id: str, request: Request):
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
     
-    if application["status"] != "pending":
+    # Allow approval of both "pending" and "waitlisted" (admin promoting from waitlist
+    # once a seller slot has freed up).
+    if application["status"] not in ("pending", "waitlisted"):
         raise HTTPException(status_code=400, detail="Application already processed")
     
     brand_id = await _finalise_approval(application_id, application, origin_url=str(request.base_url).rstrip("/"))
