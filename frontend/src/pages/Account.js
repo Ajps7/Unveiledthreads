@@ -162,6 +162,9 @@ export default function Account() {
           <Link to="/privacy" className="text-xs text-[#39FF14] hover:underline uppercase tracking-wider" data-testid="account-privacy-link">
             Read our full Privacy Policy →
           </Link>
+          <p className="text-[10px] text-[#6B7280] mt-4 pt-3 border-t border-white/5" data-testid="account-ico-reg">
+            Unveiled Threads is registered with the UK ICO · Reg No. <span className="text-[#9CA3AF]">ZC176765</span>
+          </p>
         </div>
 
         {/* Danger zone */}

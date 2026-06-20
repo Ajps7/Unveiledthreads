@@ -446,6 +446,9 @@ export default function Home() {
           </div>
           <div className="border-t border-white/10 pt-8 text-center text-sm text-[#9CA3AF]">
             <p>© 2024 Unveiled Threads. All rights reserved. · <Link to="/terms" className="hover:text-white transition-colors">Terms & Conditions</Link> · <Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link></p>
+            <p className="text-xs text-[#6B7280] mt-2" data-testid="footer-ico-reg">
+              Registered with the UK Information Commissioner&apos;s Office · Reg No. <span className="text-[#9CA3AF]">ZC176765</span>
+            </p>
           </div>
         </div>
       </footer>

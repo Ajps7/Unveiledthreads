@@ -66,6 +66,19 @@ export default function Privacy() {
           the <span className="text-white font-semibold">Data Controller</span> of the personal data described in this notice.
         </P>
         <P>
+          We are registered with the UK Information Commissioner&apos;s Office (ICO) under registration number{' '}
+          <span className="text-white font-semibold" data-testid="ico-reg-number">ZC176765</span>.
+          You can verify our registration on the{' '}
+          <a
+            href="https://ico.org.uk/ESDWebPages/Search"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[#39FF14] hover:underline"
+          >
+            ICO public register
+          </a>.
+        </P>
+        <P>
           If you have any questions about this policy or your data, contact us at{' '}
           <a href="mailto:privacy@unveiledthreads.co.uk" className="text-[#39FF14] hover:underline">
             privacy@unveiledthreads.co.uk
