@@ -178,7 +178,19 @@ export default function ProductDetail() {
               </div>
             )}
 
-            <p className="text-3xl font-bold text-[#C0C0C0] mb-1" data-testid="product-price">£{product.price.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-[#C0C0C0] mb-1" data-testid="product-price">
+              £{product.price.toFixed(2)}
+              {product.is_dead_stock && product.original_price && product.original_price > product.price && (
+                <>
+                  <span className="ml-3 text-base text-[#6B7280] line-through font-normal" data-testid="product-original-price">
+                    £{Number(product.original_price).toFixed(2)}
+                  </span>
+                  <span className="ml-3 text-xs uppercase tracking-wider px-2 py-1 bg-[#39FF14] text-black font-bold align-middle" data-testid="product-discount-badge">
+                    -{product.discount_percent || 0}% · Dead Stock
+                  </span>
+                </>
+              )}
+            </p>
 
             {/* Price breakdown */}
             <div className="text-xs text-[#9CA3AF] mb-6 space-y-1">

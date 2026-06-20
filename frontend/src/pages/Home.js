@@ -315,6 +315,39 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Dead Stock Promo */}
+      <section className="py-16 px-6 md:px-12 border-b border-white/10 bg-gradient-to-br from-[#39FF14]/5 via-transparent to-transparent">
+        <div className="max-w-7xl mx-auto">
+          <Link
+            to="/dead-stock"
+            className="group block border border-[#39FF14]/30 bg-[#0A0A0A] hover:bg-[#0F0F0F] hover:border-[#39FF14]/60 p-8 md:p-12 transition-all"
+            data-testid="dead-stock-promo"
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-[#39FF14] font-bold mb-3">
+                  Archive Sale
+                </p>
+                <h2
+                  className="text-3xl md:text-5xl font-black tracking-tighter uppercase text-white mb-3"
+                  style={{ fontFamily: 'Clash Display, sans-serif' }}
+                >
+                  DEAD STOCK
+                </h2>
+                <p className="text-[#9CA3AF] max-w-xl text-sm md:text-base">
+                  Past-collection pieces from independent UK brands at sharper prices.
+                  Limited quantities — when it's gone, it's gone.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-[#39FF14] text-sm uppercase tracking-wider group-hover:translate-x-1 transition-transform">
+                Shop Dead Stock
+                <span className="text-2xl">→</span>
+              </div>
+            </div>
+          </Link>
+        </div>
+      </section>
+
       {/* Latest Products */}
       <section className="py-24 px-6 md:px-12">
         <div className="max-w-7xl mx-auto">

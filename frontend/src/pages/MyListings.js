@@ -21,7 +21,7 @@ import {
 import Header from '../components/Header';
 import ImageUpload from '../components/ImageUpload';
 import {
-  Plus, Package, Edit, Trash2, ExternalLink, Eye, Loader2, ArrowLeft, Search, X
+  Plus, Package, Edit, Trash2, ExternalLink, Eye, Loader2, ArrowLeft, Search, X, Tag, RotateCcw
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -49,6 +49,14 @@ export default function MyListings() {
   const [editProduct, setEditProduct] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'dead-stock'
+  const [quota, setQuota] = useState(null);
+  const [deadStockDialog, setDeadStockDialog] = useState(null); // {product, mode}
+  const [deadStockPrice, setDeadStockPrice] = useState('');
+  const [movingToDeadStock, setMovingToDeadStock] = useState(false);
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [requestedQuota, setRequestedQuota] = useState('20');
+  const [requestReason, setRequestReason] = useState('');
 
   useEffect(() => {
     if (authLoading) return;
@@ -64,11 +72,78 @@ export default function MyListings() {
         setBrandData(appRes.data.brand_profile);
         const prodRes = await axios.get(`${API}/api/products?brand_id=${appRes.data.brand_profile.id}`);
         setProducts(prodRes.data);
+        // Quota for dead stock
+        try {
+          const qRes = await axios.get(`${API}/api/dead-stock/my-quota`, { withCredentials: true });
+          setQuota(qRes.data);
+        } catch (qe) {
+          console.warn('Failed to load quota:', qe);
+        }
       }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openMoveToDeadStock = (product) => {
+    setDeadStockDialog({ product, mode: 'add' });
+    setDeadStockPrice(product.price.toString());
+  };
+
+  const handleMoveToDeadStock = async () => {
+    if (!deadStockDialog?.product) return;
+    const newPrice = parseFloat(deadStockPrice);
+    if (!newPrice || newPrice <= 0) {
+      alert('Enter a valid price');
+      return;
+    }
+    setMovingToDeadStock(true);
+    try {
+      await axios.post(
+        `${API}/api/products/${deadStockDialog.product.id}/dead-stock`,
+        { new_price: newPrice },
+        { withCredentials: true }
+      );
+      setDeadStockDialog(null);
+      setDeadStockPrice('');
+      await fetchData();
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to move to dead stock');
+    } finally {
+      setMovingToDeadStock(false);
+    }
+  };
+
+  const handleRemoveFromDeadStock = async (product) => {
+    if (!window.confirm(`Restore "${product.name}" to the main shop at £${(product.original_price || product.price).toFixed(2)}?`)) return;
+    try {
+      await axios.delete(`${API}/api/products/${product.id}/dead-stock`, { withCredentials: true });
+      await fetchData();
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to restore product');
+    }
+  };
+
+  const handleRequestQuota = async () => {
+    const n = parseInt(requestedQuota, 10);
+    if (!n || n <= (quota?.quota || 10)) {
+      alert(`Requested quota must be greater than current (${quota?.quota || 10})`);
+      return;
+    }
+    try {
+      await axios.post(
+        `${API}/api/dead-stock/quota-request`,
+        { requested_quota: n, reason: requestReason },
+        { withCredentials: true }
+      );
+      setRequestDialogOpen(false);
+      setRequestReason('');
+      await fetchData();
+      alert('Quota request submitted. We will email you once reviewed.');
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to submit request');
     }
   };
 
@@ -119,10 +194,15 @@ export default function MyListings() {
     }
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products
+    .filter((p) => (activeTab === 'dead-stock' ? p.is_dead_stock : !p.is_dead_stock))
+    .filter((p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+  const deadStockCount = products.filter((p) => p.is_dead_stock).length;
+  const liveCount = products.filter((p) => !p.is_dead_stock).length;
 
   if (authLoading || loading) {
     return (
@@ -148,13 +228,84 @@ export default function MyListings() {
             <h1 className="text-2xl md:text-3xl font-black tracking-tighter uppercase text-white" style={{ fontFamily: 'Clash Display, sans-serif' }} data-testid="listings-title">
               MY LISTINGS
             </h1>
-            <p className="text-sm text-[#9CA3AF]">{products.length} product{products.length !== 1 ? 's' : ''} listed</p>
+            <p className="text-sm text-[#9CA3AF]">
+              {liveCount} live · {deadStockCount} in dead stock
+            </p>
           </div>
           <Link to="/brand/add-product">
             <Button className="btn-primary" data-testid="add-new-product-button">
               <Plus className="w-4 h-4 mr-2" /> List New Product
             </Button>
           </Link>
+        </div>
+
+        {/* Dead Stock Quota Banner */}
+        {quota && (
+          <div
+            className={`mb-6 border p-4 flex items-center justify-between gap-3 flex-wrap ${
+              quota.remaining === 0
+                ? 'border-yellow-500/40 bg-yellow-500/5'
+                : 'border-[#39FF14]/30 bg-[#39FF14]/5'
+            }`}
+            data-testid="dead-stock-quota-banner"
+          >
+            <div className="flex items-center gap-3">
+              <Tag className={`w-5 h-5 ${quota.remaining === 0 ? 'text-yellow-300' : 'text-[#39FF14]'}`} />
+              <div>
+                <p className="text-xs uppercase tracking-wider text-[#C0C0C0] font-bold mb-0.5">
+                  Dead Stock Slots
+                </p>
+                <p className="text-sm text-white">
+                  <span className="font-bold" data-testid="quota-used">{quota.used}</span>
+                  <span className="text-[#9CA3AF]"> / </span>
+                  <span data-testid="quota-total">{quota.quota}</span>
+                  <span className="text-[#9CA3AF] text-xs ml-2">
+                    {quota.remaining > 0
+                      ? `(${quota.remaining} available)`
+                      : '— at capacity'}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {quota.pending_request?.status === 'pending' ? (
+                <span className="text-xs text-yellow-300 uppercase tracking-wider px-3 py-1 bg-yellow-500/10 border border-yellow-500/30">
+                  Request pending: {quota.pending_request.requested_quota}
+                </span>
+              ) : (
+                <Button
+                  variant="ghost"
+                  className="text-[#39FF14] hover:bg-[#39FF14]/10 text-xs uppercase tracking-wider rounded-none"
+                  onClick={() => setRequestDialogOpen(true)}
+                  data-testid="request-quota-button"
+                >
+                  Request more slots
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-white/10 mb-6" data-testid="listings-tabs">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`px-5 py-3 text-xs uppercase tracking-wider transition-colors border-b-2 ${
+              activeTab === 'all' ? 'border-[#39FF14] text-[#39FF14]' : 'border-transparent text-[#9CA3AF] hover:text-white'
+            }`}
+            data-testid="tab-all"
+          >
+            Active ({liveCount})
+          </button>
+          <button
+            onClick={() => setActiveTab('dead-stock')}
+            className={`px-5 py-3 text-xs uppercase tracking-wider transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === 'dead-stock' ? 'border-[#39FF14] text-[#39FF14]' : 'border-transparent text-[#9CA3AF] hover:text-white'
+            }`}
+            data-testid="tab-dead-stock"
+          >
+            <Tag className="w-3 h-3" /> Dead Stock ({deadStockCount})
+          </button>
         </div>
 
         {/* Search */}
@@ -205,7 +356,17 @@ export default function MyListings() {
                   <div className="p-4">
                     <h3 className="text-white font-medium mb-1 line-clamp-1">{product.name}</h3>
                     <div className="flex items-center justify-between mb-3">
-                      <span className="text-[#39FF14] font-bold">£{product.price.toFixed(2)}</span>
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-[#39FF14] font-bold">£{product.price.toFixed(2)}</span>
+                        {product.is_dead_stock && product.original_price && product.original_price > product.price && (
+                          <span className="text-xs text-[#6B7280] line-through">£{Number(product.original_price).toFixed(2)}</span>
+                        )}
+                        {product.is_dead_stock && (product.discount_percent || 0) > 0 && (
+                          <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 bg-[#39FF14] text-black font-bold">
+                            -{product.discount_percent}%
+                          </span>
+                        )}
+                      </div>
                       <span className="badge-category text-[10px]">{product.category}</span>
                     </div>
                     <p className="text-xs text-[#9CA3AF] mb-3">
@@ -213,7 +374,7 @@ export default function MyListings() {
                       {product.shipping_cost > 0 ? ` · Shipping: £${product.shipping_cost.toFixed(2)}` : ' · Free shipping'}
                     </p>
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mb-2">
                       <Button
                         className="btn-secondary flex-1 text-xs py-1"
                         onClick={() => openEdit(product)}
@@ -235,6 +396,27 @@ export default function MyListings() {
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
+                    {product.is_dead_stock ? (
+                      <Button
+                        variant="ghost"
+                        className="w-full text-xs py-1 text-[#9CA3AF] hover:text-white hover:bg-white/5 rounded-none border border-white/10"
+                        onClick={() => handleRemoveFromDeadStock(product)}
+                        data-testid={`restore-${product.id}`}
+                      >
+                        <RotateCcw className="w-3 h-3 mr-1" /> Restore to Main Shop
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        className="w-full text-xs py-1 text-[#39FF14] hover:bg-[#39FF14]/10 rounded-none border border-[#39FF14]/30"
+                        onClick={() => openMoveToDeadStock(product)}
+                        disabled={quota && quota.remaining <= 0}
+                        data-testid={`move-dead-stock-${product.id}`}
+                      >
+                        <Tag className="w-3 h-3 mr-1" />
+                        {quota && quota.remaining <= 0 ? 'Dead Stock Full' : 'Move to Dead Stock'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
@@ -332,6 +514,107 @@ export default function MyListings() {
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
               <Button className="btn-secondary" onClick={() => setEditProduct(null)}>Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move to Dead Stock Dialog */}
+      <Dialog open={!!deadStockDialog} onOpenChange={(open) => { if (!open) { setDeadStockDialog(null); setDeadStockPrice(''); } }}>
+        <DialogContent className="bg-[#0F0F0F] border-white/10 rounded-none max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white uppercase flex items-center gap-2" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              <Tag className="w-5 h-5 text-[#39FF14]" /> Move to Dead Stock
+            </DialogTitle>
+          </DialogHeader>
+          {deadStockDialog?.product && (
+            <div className="space-y-4 mt-4">
+              <div className="border border-white/10 bg-[#0A0A0A] p-3">
+                <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Product</p>
+                <p className="text-white text-sm">{deadStockDialog.product.name}</p>
+                <p className="text-xs text-[#9CA3AF] mt-1">Current price: £{deadStockDialog.product.price.toFixed(2)}</p>
+              </div>
+              <div>
+                <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">
+                  New Dead Stock Price (£)
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={deadStockPrice}
+                  onChange={(e) => setDeadStockPrice(e.target.value)}
+                  className="input-brutalist"
+                  data-testid="dead-stock-price-input"
+                  placeholder="Leave as current to keep price the same"
+                />
+                <p className="text-xs text-[#9CA3AF] mt-2">
+                  The original price (£{deadStockDialog.product.price.toFixed(2)}) will be shown
+                  alongside the new one with a &quot;-X%&quot; badge so buyers can see the saving.
+                  Set the same price to keep it unchanged.
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button
+                  className="btn-primary flex-1"
+                  onClick={handleMoveToDeadStock}
+                  disabled={movingToDeadStock}
+                  data-testid="confirm-dead-stock-button"
+                >
+                  {movingToDeadStock ? 'Moving…' : 'Move to Dead Stock'}
+                </Button>
+                <Button className="btn-secondary" onClick={() => { setDeadStockDialog(null); setDeadStockPrice(''); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Request Quota Dialog */}
+      <Dialog open={requestDialogOpen} onOpenChange={setRequestDialogOpen}>
+        <DialogContent className="bg-[#0F0F0F] border-white/10 rounded-none max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white uppercase" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              Request More Slots
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-[#9CA3AF]">
+              Default Dead Stock cap is <span className="text-white font-semibold">{quota?.quota || 10}</span> items.
+              Ask the admin team for more if you&apos;ve got a bigger archive to shift.
+            </p>
+            <div>
+              <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">
+                Requested quota
+              </label>
+              <Input
+                type="number"
+                value={requestedQuota}
+                onChange={(e) => setRequestedQuota(e.target.value)}
+                className="input-brutalist"
+                data-testid="requested-quota-input"
+                min={(quota?.quota || 10) + 1}
+                max={200}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">
+                Reason (optional)
+              </label>
+              <Textarea
+                value={requestReason}
+                onChange={(e) => setRequestReason(e.target.value)}
+                className="input-brutalist min-h-[80px] resize-none"
+                placeholder="e.g. clearing out three past collections..."
+                data-testid="quota-reason-input"
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button className="btn-primary flex-1" onClick={handleRequestQuota} data-testid="submit-quota-request-button">
+                Submit Request
+              </Button>
+              <Button className="btn-secondary" onClick={() => setRequestDialogOpen(false)}>Cancel</Button>
             </div>
           </div>
         </DialogContent>

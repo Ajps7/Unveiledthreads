@@ -163,6 +163,21 @@ class ProductCreate(BaseModel):
     condition: str = "new"
     fit: Optional[str] = None
 
+
+class DeadStockToggle(BaseModel):
+    """Move a product into dead stock with an optional new (lower) price.
+    If new_price is omitted the current price is kept and shown alongside the original."""
+    new_price: Optional[float] = None
+
+
+class QuotaRequest(BaseModel):
+    requested_quota: int
+    reason: Optional[str] = None
+
+
+class AdminQuotaUpdate(BaseModel):
+    quota: int
+
 COLOURS = ["Black", "White", "Grey", "Navy", "Green", "Olive", "Brown", "Beige", "Cream", "Red", "Blue", "Purple", "Orange", "Yellow", "Pink", "Multi"]
 MATERIALS = ["Cotton", "Organic Cotton", "Polyester", "Nylon", "Fleece", "Denim", "Leather", "Wool", "Linen", "Canvas", "Corduroy", "Mesh", "Mixed"]
 GENDERS = ["unisex", "mens", "womens"]
@@ -383,6 +398,21 @@ BOOST_PACKAGES = {
     "monthly": {"id": "monthly", "name": "Monthly Boost", "duration_days": 30, "price": 29.99, "description": "30 days of premium visibility"},
     "quarterly": {"id": "quarterly", "name": "Quarterly Boost", "duration_days": 90, "price": 69.99, "description": "90 days of maximum exposure"},
 }
+
+# ============ DEAD STOCK ============
+# Sellers can move up to N items into a dead-stock/archive section so buyers
+# can shop discounted past-collection pieces. Quota is per brand, configurable
+# per brand by an admin (sellers can request an increase).
+DEAD_STOCK_DEFAULT_QUOTA = int(os.environ.get("DEAD_STOCK_DEFAULT_QUOTA", "10"))
+
+
+async def _brand_dead_stock_count(brand_id: str) -> int:
+    return await db.products.count_documents({"brand_id": brand_id, "is_dead_stock": True})
+
+
+def _brand_quota(brand_doc: dict) -> int:
+    return int(brand_doc.get("dead_stock_quota") or DEAD_STOCK_DEFAULT_QUOTA)
+
 
 # ============ BRAND SLUG (vanity store URLs) ============
 
@@ -1471,6 +1501,7 @@ async def get_products(
     sort: str = "latest",
     in_stock: Optional[bool] = None,
     free_shipping: Optional[bool] = None,
+    is_dead_stock: Optional[bool] = None,
     limit: int = 50,
     skip: int = 0
 ):
@@ -1501,6 +1532,11 @@ async def get_products(
     if free_shipping:
         query["$or"] = query.get("$or", [])
         query.setdefault("shipping_cost", {})["$lte"] = 0
+    if is_dead_stock is True:
+        query["is_dead_stock"] = True
+    elif is_dead_stock is False:
+        # Exclude dead stock from main shop listings unless explicitly requested
+        query["is_dead_stock"] = {"$ne": True}
     if search:
         search_filter = [
             {"name": {"$regex": search, "$options": "i"}},
@@ -1706,6 +1742,257 @@ async def delete_product(product_id: str, request: Request):
     
     await db.products.delete_one({"_id": safe_object_id(product_id)})
     return {"message": "Product deleted"}
+
+
+# ============ DEAD STOCK ROUTES ============
+
+@api_router.get("/dead-stock")
+async def get_dead_stock(
+    category: Optional[str] = None,
+    brand_id: Optional[str] = None,
+    min_discount: Optional[int] = None,
+    sort: str = "latest",
+    limit: int = 50,
+    skip: int = 0,
+):
+    """Public listing of products flagged as dead stock.
+    Each item carries `original_price`, `price` (current/sale) and `discount_percent`."""
+    query = {"is_dead_stock": True}
+    if category and category != "all":
+        query["category"] = category
+    if brand_id:
+        query["brand_id"] = brand_id
+    
+    sort_map = {
+        "latest": ("dead_stock_added_at", -1),
+        "price_low": ("price", 1),
+        "price_high": ("price", -1),
+        "biggest_discount": ("discount_percent", -1),
+    }
+    sort_field, sort_dir = sort_map.get(sort, ("dead_stock_added_at", -1))
+    
+    products = await db.products.find(query).sort(sort_field, sort_dir).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with seller payment status (same as main /products)
+    brand_ids = list({p.get("brand_id") for p in products if p.get("brand_id")})
+    brand_payment_status = {}
+    if brand_ids:
+        try:
+            brand_object_ids = [ObjectId(bid) for bid in brand_ids]
+            async for b in db.brands.find(
+                {"_id": {"$in": brand_object_ids}},
+                {"_id": 1, "stripe_charges_enabled": 1}
+            ):
+                brand_payment_status[str(b["_id"])] = bool(b.get("stripe_charges_enabled"))
+        except Exception:
+            pass
+    
+    result = []
+    for product in products:
+        product["id"] = str(product["_id"])
+        del product["_id"]
+        product["seller_payments_ready"] = brand_payment_status.get(product.get("brand_id"), False)
+        result.append(product)
+    
+    if min_discount is not None:
+        result = [p for p in result if (p.get("discount_percent") or 0) >= min_discount]
+    
+    return result
+
+
+def _calc_discount(original: float, current: float) -> int:
+    if not original or original <= 0 or current >= original:
+        return 0
+    return int(round((1 - current / original) * 100))
+
+
+@api_router.post("/products/{product_id}/dead-stock")
+async def move_to_dead_stock(product_id: str, payload: DeadStockToggle, request: Request):
+    """Move a product into the brand's dead stock zone. Optionally apply a markdown."""
+    user = await require_brand(request)
+    
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand or str(brand["_id"]) != product["brand_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    brand_id = str(brand["_id"])
+    quota = _brand_quota(brand)
+    
+    if not product.get("is_dead_stock"):
+        current_count = await _brand_dead_stock_count(brand_id)
+        if current_count >= quota:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Dead stock quota reached ({current_count}/{quota}). "
+                    "Remove an item from Dead Stock or request a quota increase from the admin team."
+                ),
+            )
+    
+    original_price = product.get("original_price") or product["price"]
+    new_price = payload.new_price if payload.new_price is not None else product["price"]
+    
+    if new_price <= 0:
+        raise HTTPException(status_code=400, detail="Price must be greater than 0")
+    if new_price > original_price:
+        raise HTTPException(status_code=400, detail="Dead stock price cannot be higher than the original price")
+    
+    discount = _calc_discount(original_price, new_price)
+    
+    await db.products.update_one(
+        {"_id": safe_object_id(product_id)},
+        {"$set": {
+            "is_dead_stock": True,
+            "original_price": float(original_price),
+            "price": float(new_price),
+            "discount_percent": discount,
+            "dead_stock_added_at": datetime.now(timezone.utc),
+        }}
+    )
+    
+    return {
+        "message": "Product moved to dead stock",
+        "original_price": original_price,
+        "price": new_price,
+        "discount_percent": discount,
+    }
+
+
+@api_router.delete("/products/{product_id}/dead-stock")
+async def remove_from_dead_stock(product_id: str, request: Request):
+    """Take a product back out of the dead stock zone. Restores the original price."""
+    user = await require_brand(request)
+    
+    product = await db.products.find_one({"_id": safe_object_id(product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand or str(brand["_id"]) != product["brand_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    original_price = product.get("original_price") or product["price"]
+    await db.products.update_one(
+        {"_id": safe_object_id(product_id)},
+        {"$set": {
+            "is_dead_stock": False,
+            "price": float(original_price),
+            "discount_percent": 0,
+        }, "$unset": {"dead_stock_added_at": ""}}
+    )
+    return {"message": "Product restored to main shop", "price": original_price}
+
+
+@api_router.get("/dead-stock/my-quota")
+async def get_dead_stock_quota(request: Request):
+    """Quota status for the current brand. Returns used/quota/remaining + any pending request."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    brand_id = str(brand["_id"])
+    used = await _brand_dead_stock_count(brand_id)
+    quota = _brand_quota(brand)
+    pending = brand.get("dead_stock_quota_request")
+    return {
+        "used": used,
+        "quota": quota,
+        "remaining": max(0, quota - used),
+        "pending_request": pending,
+    }
+
+
+@api_router.post("/dead-stock/quota-request")
+async def request_dead_stock_quota(payload: QuotaRequest, request: Request):
+    """Brand requests an increase to their dead stock quota. Logged on the brand doc
+    and a notification is sent to all admins for action."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    
+    current_quota = _brand_quota(brand)
+    if payload.requested_quota <= current_quota:
+        raise HTTPException(status_code=400, detail=f"Requested quota must be greater than current ({current_quota})")
+    if payload.requested_quota > 200:
+        raise HTTPException(status_code=400, detail="Maximum requestable quota is 200")
+    
+    await db.brands.update_one(
+        {"_id": brand["_id"]},
+        {"$set": {"dead_stock_quota_request": {
+            "requested_quota": payload.requested_quota,
+            "reason": payload.reason or "",
+            "requested_at": datetime.now(timezone.utc),
+            "status": "pending",
+        }}}
+    )
+    
+    # Ping every admin so they see the request in their notifications
+    async for admin in db.users.find({"role": "admin"}, {"_id": 1}):
+        await create_notification(
+            user_id=str(admin["_id"]),
+            brand_id=str(brand["_id"]),
+            notification_type="quota_request",
+            title="Dead Stock quota request",
+            message=f"{brand['brand_name']} is requesting {payload.requested_quota} dead stock slots (currently {current_quota}).",
+            metadata={"brand_id": str(brand["_id"]), "requested_quota": payload.requested_quota},
+        )
+    
+    return {"message": "Quota request submitted. We'll review it and email you shortly."}
+
+
+@api_router.get("/admin/dead-stock-quota-requests")
+async def list_quota_requests(request: Request):
+    """All pending dead stock quota requests, for admin review."""
+    await require_admin(request)
+    out = []
+    async for brand in db.brands.find({"dead_stock_quota_request.status": "pending"}):
+        used = await _brand_dead_stock_count(str(brand["_id"]))
+        out.append({
+            "brand_id": str(brand["_id"]),
+            "brand_name": brand.get("brand_name"),
+            "current_quota": _brand_quota(brand),
+            "used": used,
+            "request": brand["dead_stock_quota_request"] | {
+                "requested_at": brand["dead_stock_quota_request"]["requested_at"].isoformat()
+                if isinstance(brand["dead_stock_quota_request"].get("requested_at"), datetime)
+                else brand["dead_stock_quota_request"].get("requested_at"),
+            },
+        })
+    return out
+
+
+@api_router.post("/admin/brands/{brand_id}/dead-stock-quota")
+async def admin_set_dead_stock_quota(brand_id: str, payload: AdminQuotaUpdate, request: Request):
+    """Admin overrides a brand's dead stock quota and clears any pending request."""
+    await require_admin(request)
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    if payload.quota < 0:
+        raise HTTPException(status_code=400, detail="Quota cannot be negative")
+    
+    await db.brands.update_one(
+        {"_id": safe_object_id(brand_id)},
+        {"$set": {"dead_stock_quota": int(payload.quota)},
+         "$unset": {"dead_stock_quota_request": ""}}
+    )
+    
+    # Notify the brand owner that the quota changed
+    await create_notification(
+        user_id=brand["user_id"],
+        brand_id=brand_id,
+        notification_type="quota_updated",
+        title="Dead Stock quota updated",
+        message=f"Your dead stock quota has been set to {payload.quota}.",
+        metadata={"new_quota": payload.quota},
+    )
+    
+    return {"message": "Quota updated", "quota": payload.quota}
 
 # ============ CATEGORIES ============
 

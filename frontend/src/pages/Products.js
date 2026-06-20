@@ -92,6 +92,7 @@ export default function Products() {
     sort: searchParams.get('sort') || 'latest',
     in_stock: searchParams.get('in_stock') === 'true',
     free_shipping: searchParams.get('free_shipping') === 'true',
+    is_dead_stock: searchParams.get('is_dead_stock') === 'true',
   });
 
   useEffect(() => {
@@ -146,6 +147,12 @@ export default function Products() {
         }
       }
 
+      // Default: exclude dead stock from the main shop. Buyers can opt in
+      // via the "Dead Stock only" filter, which flips this to true.
+      if (!params.has('is_dead_stock')) {
+        params.append('is_dead_stock', 'false');
+      }
+
       const res = await axios.get(`${API}/api/products?${params.toString()}`);
       setProducts(res.data);
     } catch (e) { console.error(e); }
@@ -181,7 +188,7 @@ export default function Products() {
     setFilters({
       category: 'all', size: '', colour: '', material: '', gender: 'all',
       condition: 'all', fit: '', min_price: '', max_price: '', sort: 'latest',
-      in_stock: false, free_shipping: false,
+      in_stock: false, free_shipping: false, is_dead_stock: false,
     });
     setSearchParams({});
   };
@@ -392,6 +399,16 @@ export default function Products() {
                         data-testid="free-shipping-checkbox"
                       />
                       <span className="text-xs text-[#C0C0C0] flex items-center gap-1"><Truck className="w-3 h-3" /> Free Shipping</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={filters.is_dead_stock}
+                        onChange={(e) => updateFilter('is_dead_stock', e.target.checked)}
+                        className="accent-[#39FF14]"
+                        data-testid="dead-stock-checkbox"
+                      />
+                      <span className="text-xs text-[#39FF14] font-bold">Dead Stock Only</span>
                     </label>
                   </div>
                 </FilterSection>

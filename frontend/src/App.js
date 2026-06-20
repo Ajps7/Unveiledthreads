@@ -29,6 +29,7 @@ import Community from "./pages/Community";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import Account from "./pages/Account";
+import DeadStock from "./pages/DeadStock";
 import AdminDashboard from "./pages/AdminDashboard";
 import CookieBanner from "./components/CookieBanner";
 
@@ -64,6 +65,7 @@ function App() {
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/account" element={<Account />} />
+            <Route path="/dead-stock" element={<DeadStock />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Routes>
           <CookieBanner />
