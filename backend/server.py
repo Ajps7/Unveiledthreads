@@ -3903,6 +3903,22 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
+
+# Security headers — applied to every response.
+# - frame-ancestors 'self' (CSP, modern) + X-Frame-Options SAMEORIGIN (legacy fallback)
+#   together prevent clickjacking by blocking the site from being iframed by other origins.
+# - Other headers harden against MIME sniffing, referrer leakage and forced HTTPS.
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 # CORS: read allowed origins from env, with safe fallback behaviour.
 # - Specific origins (comma-separated): exact match, credentials allowed
 # - "*" (wildcard): permissive but credentials cannot work per CORS spec, so we use a
