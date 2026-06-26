@@ -2129,12 +2129,14 @@ async def stripe_webhook(request: Request):
     
     api_key = os.environ.get("STRIPE_API_KEY")
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+    environment = os.environ.get("ENVIRONMENT", "development").strip().lower()
     
     stripe_sdk.api_key = api_key
     
-    # Verify signature against webhook secret. In dev (no secret set), log a loud warning
-    # and accept unsigned events — but in production STRIPE_WEBHOOK_SECRET MUST be set
-    # or this endpoint becomes a free path for attackers to fake payments / account state.
+    # Webhook signature is REQUIRED. Without it, anyone can POST a fake
+    # "payment_intent.succeeded" event and flip orders / connect-account state.
+    # In production we hard-fail. In dev we still warn loudly and accept
+    # unsigned events for local Stripe CLI testing.
     raw_event = None
     if webhook_secret:
         try:
@@ -2147,6 +2149,12 @@ async def stripe_webhook(request: Request):
         except Exception as e:
             logger.error(f"Stripe webhook parse error: {e}")
             raise HTTPException(status_code=400, detail="Invalid payload")
+    elif environment == "production":
+        logger.error(
+            "REFUSING webhook: STRIPE_WEBHOOK_SECRET is not set in production. "
+            "Set it from https://dashboard.stripe.com/webhooks before any live traffic."
+        )
+        raise HTTPException(status_code=503, detail="Webhook verification not configured")
     else:
         logger.warning(
             "STRIPE_WEBHOOK_SECRET is not set — webhook events are NOT being verified. "
@@ -3924,13 +3932,36 @@ async def security_headers(request: Request, call_next):
 
 
 # CORS: read allowed origins from env, with safe fallback behaviour.
-# - Specific origins (comma-separated): exact match, credentials allowed
-# - "*" (wildcard): permissive but credentials cannot work per CORS spec, so we use a
-#   regex match that echoes back the request origin (which IS valid with credentials).
-_cors_raw = os.environ.get("CORS_ORIGINS", "*").strip()
+# In production, missing/wildcard CORS_ORIGINS is a critical CSRF risk
+# (cross-site JS could ride users' login cookies). We fail CLOSED:
+# - production + missing/* → restrict to the known production domain only
+# - dev (no ENVIRONMENT set) → permissive wildcard for local + preview testing
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
 _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+_environment = os.environ.get("ENVIRONMENT", "development").strip().lower()
+_production_fallback_origins = [
+    "https://unveiledthreads.co.uk",
+    "https://www.unveiledthreads.co.uk",
+]
 
-if "*" in _cors_origins or _cors_raw == "*":
+if _environment == "production":
+    if not _cors_origins or "*" in _cors_origins:
+        # Refuse to be permissive in production — hard-restrict to the known domain.
+        logger.critical(
+            "CORS_ORIGINS is not set (or set to '*') in production. "
+            "Hard-restricting to %s. Set CORS_ORIGINS in deployment env vars.",
+            _production_fallback_origins,
+        )
+        _cors_origins = list(_production_fallback_origins)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+elif "*" in _cors_origins or _cors_raw == "*" or not _cors_origins:
+    # Dev / preview: allow any origin, but echo it back so credentials still work.
     app.add_middleware(
         CORSMiddleware,
         allow_credentials=True,
