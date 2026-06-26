@@ -3908,6 +3908,8 @@ app.add_middleware(SlowAPIMiddleware)
 # - frame-ancestors 'self' (CSP, modern) + X-Frame-Options SAMEORIGIN (legacy fallback)
 #   together prevent clickjacking by blocking the site from being iframed by other origins.
 # - Other headers harden against MIME sniffing, referrer leakage and forced HTTPS.
+# - Cross-Origin-Resource-Policy: 'same-site' allows our own subdomains (e.g. CDN, static)
+#   to embed resources but blocks unrelated origins from hot-linking.
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -3915,7 +3917,9 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     return response
 
 

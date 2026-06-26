@@ -5,6 +5,26 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#000000" />
         <meta name="description" content="A product of emergent.sh" />
+        <!--
+        Content Security Policy — XSS hardening.
+        Note: `frame-ancestors` and HSTS cannot be set via meta tag — they MUST come
+        from the HTTP response header on the HTML document. The backend covers them
+        on /api/* responses; the HTML response needs them set at the hosting layer.
+        -->
+        <meta http-equiv="Content-Security-Policy" content="
+          default-src 'self';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://assets.emergent.sh https://*.posthog.com https://js.stripe.com https://static.cloudflareinsights.com;
+          worker-src 'self' blob:;
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com;
+          font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com https://api.fontshare.com;
+          img-src 'self' data: blob: https:;
+          connect-src 'self' https://*.posthog.com https://api.stripe.com https://*.preview.emergentagent.com https://unveiledthreads.co.uk https://*.unveiledthreads.co.uk https://cloudflareinsights.com https://*.cloudflareinsights.com wss://*.preview.emergentagent.com wss://unveiledthreads.co.uk;
+          frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com;
+          base-uri 'self';
+          form-action 'self' https://checkout.stripe.com;
+          object-src 'none';
+          upgrade-insecure-requests;
+        " />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
