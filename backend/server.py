@@ -2128,7 +2128,16 @@ async def stripe_webhook(request: Request):
     signature = request.headers.get("Stripe-Signature")
     
     api_key = os.environ.get("STRIPE_API_KEY")
-    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+    # Two separate webhook endpoints are registered with Stripe:
+    #   - STRIPE_WEBHOOK_SECRET         → account-level events (payments, refunds)
+    #   - STRIPE_CONNECT_WEBHOOK_SECRET → Connect platform events (account.updated, payouts)
+    # Both webhooks POST to the same endpoint; we try each secret until one verifies.
+    webhook_secrets = [
+        s for s in (
+            os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip(),
+            os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET", "").strip(),
+        ) if s
+    ]
     environment = os.environ.get("ENVIRONMENT", "development").strip().lower()
     
     stripe_sdk.api_key = api_key
@@ -2138,27 +2147,32 @@ async def stripe_webhook(request: Request):
     # In production we hard-fail. In dev we still warn loudly and accept
     # unsigned events for local Stripe CLI testing.
     raw_event = None
-    if webhook_secret:
-        try:
-            raw_event = stripe_sdk.Webhook.construct_event(
-                payload=body, sig_header=signature, secret=webhook_secret
-            )
-        except stripe_sdk.error.SignatureVerificationError:
-            logger.warning("Stripe webhook signature verification FAILED — rejecting event")
+    if webhook_secrets:
+        for secret in webhook_secrets:
+            try:
+                raw_event = stripe_sdk.Webhook.construct_event(
+                    payload=body, sig_header=signature, secret=secret
+                )
+                break
+            except stripe_sdk.error.SignatureVerificationError:
+                continue
+            except Exception as e:
+                logger.error(f"Stripe webhook parse error: {e}")
+                raise HTTPException(status_code=400, detail="Invalid payload")
+        if raw_event is None:
+            logger.warning("Stripe webhook signature verification FAILED against all configured secrets — rejecting event")
             raise HTTPException(status_code=400, detail="Invalid signature")
-        except Exception as e:
-            logger.error(f"Stripe webhook parse error: {e}")
-            raise HTTPException(status_code=400, detail="Invalid payload")
     elif environment == "production":
         logger.error(
-            "REFUSING webhook: STRIPE_WEBHOOK_SECRET is not set in production. "
-            "Set it from https://dashboard.stripe.com/webhooks before any live traffic."
+            "REFUSING webhook: no Stripe webhook secret is set in production. "
+            "Set STRIPE_WEBHOOK_SECRET and STRIPE_CONNECT_WEBHOOK_SECRET from "
+            "https://dashboard.stripe.com/webhooks before any live traffic."
         )
         raise HTTPException(status_code=503, detail="Webhook verification not configured")
     else:
         logger.warning(
-            "STRIPE_WEBHOOK_SECRET is not set — webhook events are NOT being verified. "
-            "Add the secret from https://dashboard.stripe.com/test/webhooks before going live."
+            "No Stripe webhook secret is set — webhook events are NOT being verified. "
+            "Add STRIPE_WEBHOOK_SECRET (and STRIPE_CONNECT_WEBHOOK_SECRET for Connect) before going live."
         )
         try:
             import json as _json
