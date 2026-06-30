@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import Header from '../components/Header';
-import { Package, ArrowLeft, Star, Truck, CheckCircle, Clock, MapPin, ExternalLink } from 'lucide-react';
+import { Package, ArrowLeft, Star, Truck, CheckCircle, Clock, MapPin, ExternalLink, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { getTrackingUrl } from '../lib/courierTracking';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -85,6 +85,25 @@ export default function MyOrders() {
   const [reviewForm, setReviewForm] = useState({ product_rating: 5, brand_rating: 5, comment: '' });
   const [submittingReview, setSubmittingReview] = useState(false);
   const [expandedOrder, setExpandedOrder] = useState(null);
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [disputeOrder, setDisputeOrder] = useState(null);
+  const [disputeMessage, setDisputeMessage] = useState('');
+  const [submittingDispute, setSubmittingDispute] = useState(false);
+  const [orderDisputes, setOrderDisputes] = useState({}); // { order_id: dispute|null }
+
+  const eligibleForDispute = (order) => {
+    if (order.status !== 'paid') return false;
+    if (order.shipping_status === 'delivered') return false;
+    if (!order.created_at) return false;
+    const days = (Date.now() - new Date(order.created_at).getTime()) / (1000 * 60 * 60 * 24);
+    return days >= 14;
+  };
+
+  const daysUntilEligible = (order) => {
+    if (!order.created_at) return null;
+    const days = (Date.now() - new Date(order.created_at).getTime()) / (1000 * 60 * 60 * 24);
+    return Math.max(0, Math.ceil(14 - days));
+  };
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -95,10 +114,52 @@ export default function MyOrders() {
     try {
       const response = await axios.get(`${API}/api/orders/my-orders`, { withCredentials: true });
       setOrders(response.data);
+      // Fetch any existing disputes per order (lightweight — one call per order, parallel)
+      const disputeMap = {};
+      await Promise.all(
+        response.data.map(async (o) => {
+          try {
+            const dr = await axios.get(`${API}/api/orders/${o.id}/disputes`, { withCredentials: true });
+            if (dr.data?.length) disputeMap[o.id] = dr.data[0];
+          } catch (_) { /* no dispute or not eligible */ }
+        })
+      );
+      setOrderDisputes(disputeMap);
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openDispute = (order) => {
+    setDisputeOrder(order);
+    setDisputeMessage('');
+    setDisputeOpen(true);
+  };
+
+  const submitDispute = async () => {
+    if (!disputeOrder) return;
+    if (disputeMessage.trim().length < 10) {
+      alert('Please describe the issue in at least 10 characters.');
+      return;
+    }
+    setSubmittingDispute(true);
+    try {
+      await axios.post(
+        `${API}/api/orders/${disputeOrder.id}/disputes`,
+        { type: 'non_delivery', message: disputeMessage.trim() },
+        { withCredentials: true }
+      );
+      setDisputeOpen(false);
+      setDisputeOrder(null);
+      setDisputeMessage('');
+      await fetchOrders();
+      alert('Dispute filed. Our team will investigate within 3 working days.');
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to file dispute');
+    } finally {
+      setSubmittingDispute(false);
     }
   };
 
@@ -269,6 +330,85 @@ export default function MyOrders() {
                         ))}
                       </div>
                     )}
+
+                    {/* Buyer Protection */}
+                    <div className="mt-5 pt-4 border-t border-white/5" data-testid={`buyer-protection-${order.id}`}>
+                      {orderDisputes[order.id] ? (
+                        (() => {
+                          const d = orderDisputes[order.id];
+                          if (d.status === 'open') {
+                            return (
+                              <div className="flex items-start gap-2 text-xs text-yellow-300">
+                                <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="font-bold uppercase tracking-wider mb-1">Dispute under review</p>
+                                  <p className="text-yellow-300/70">We&apos;re investigating. You&apos;ll hear back within 3 working days.</p>
+                                </div>
+                              </div>
+                            );
+                          }
+                          if (d.status === 'resolved_refunded') {
+                            return (
+                              <div className="flex items-start gap-2 text-xs text-[#39FF14]">
+                                <ShieldCheck className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                <div>
+                                  <p className="font-bold uppercase tracking-wider mb-1">Refunded under Buyer Protection</p>
+                                  <p className="text-[#39FF14]/70">Funds returned to your card — usually visible within 5–10 working days.</p>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="flex items-start gap-2 text-xs text-[#9CA3AF]">
+                              <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <p className="font-bold uppercase tracking-wider mb-1">Dispute closed</p>
+                                <p>{d.resolution?.note || 'Closed without refund.'}</p>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : eligibleForDispute(order) ? (
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-start gap-2 text-xs text-[#9CA3AF] max-w-md">
+                            <ShieldCheck className="w-4 h-4 flex-shrink-0 mt-0.5 text-[#39FF14]" />
+                            <p>
+                              Not received? Open a dispute &mdash; we&apos;ll review and refund if the
+                              item hasn&apos;t been delivered.{' '}
+                              <Link to="/buyer-protection" className="text-[#39FF14] hover:underline">
+                                See policy
+                              </Link>.
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            className="text-yellow-300 hover:bg-yellow-500/10 border border-yellow-500/30 rounded-none text-xs uppercase tracking-wider"
+                            onClick={() => openDispute(order)}
+                            data-testid={`open-dispute-${order.id}`}
+                          >
+                            <ShieldAlert className="w-3 h-3 mr-1" /> Report a problem
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2 text-xs text-[#9CA3AF]">
+                          <ShieldCheck className="w-4 h-4 flex-shrink-0 mt-0.5 text-[#39FF14]" />
+                          <p>
+                            Covered by{' '}
+                            <Link to="/buyer-protection" className="text-[#39FF14] hover:underline" data-testid={`bp-link-${order.id}`}>
+                              Unveiled Threads Buyer Protection
+                            </Link>
+                            {order.shipping_status === 'delivered'
+                              ? ' — order marked delivered. Contact the seller via messages if there is still an issue.'
+                              : (() => {
+                                  const days = daysUntilEligible(order);
+                                  return days > 0
+                                    ? ` — eligible to dispute in ${days} day${days === 1 ? '' : 's'} if your order doesn't arrive.`
+                                    : '';
+                                })()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -318,6 +458,58 @@ export default function MyOrders() {
                 {submittingReview ? 'Submitting...' : 'Submit Review'}
               </Button>
             </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dispute Dialog */}
+      <Dialog open={disputeOpen} onOpenChange={setDisputeOpen}>
+        <DialogContent className="bg-[#0F0F0F] border-yellow-500/30 rounded-none max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white uppercase flex items-center gap-2" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              <ShieldAlert className="w-5 h-5 text-yellow-300" /> Report a Problem
+            </DialogTitle>
+          </DialogHeader>
+          {disputeOrder && (
+            <div className="space-y-4 mt-4">
+              <div className="border border-white/10 bg-[#0A0A0A] p-3 text-sm">
+                <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Order</p>
+                <p className="text-white">{disputeOrder.product_name}</p>
+                <p className="text-xs text-[#9CA3AF] mt-1">£{Number(disputeOrder.total_price).toFixed(2)} · {disputeOrder.brand_name}</p>
+              </div>
+              <div className="border border-yellow-500/30 bg-yellow-500/5 p-3 text-xs text-yellow-100/80 leading-relaxed">
+                <p className="font-bold text-yellow-200 mb-1 uppercase tracking-wider">Before you file</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Have you messaged the seller? Most issues resolve there.</li>
+                  <li>Disputes are for <span className="text-white font-semibold">non-delivery</span> only in this version.</li>
+                  <li>If tracking shows your order was delivered, the dispute will be closed.</li>
+                </ul>
+              </div>
+              <div>
+                <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-2">
+                  What happened?
+                </label>
+                <Textarea
+                  value={disputeMessage}
+                  onChange={(e) => setDisputeMessage(e.target.value)}
+                  className="input-brutalist min-h-[100px] resize-none"
+                  placeholder="e.g. Ordered 3 weeks ago, tracking never updated past 'label created', seller hasn't replied to messages..."
+                  data-testid="dispute-message-input"
+                />
+                <p className="text-xs text-[#9CA3AF] mt-1">{disputeMessage.length}/10 minimum characters</p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button
+                  className="btn-primary flex-1"
+                  onClick={submitDispute}
+                  disabled={submittingDispute || disputeMessage.trim().length < 10}
+                  data-testid="submit-dispute-button"
+                >
+                  {submittingDispute ? 'Filing…' : 'File Dispute'}
+                </Button>
+                <Button className="btn-secondary" onClick={() => setDisputeOpen(false)}>Cancel</Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

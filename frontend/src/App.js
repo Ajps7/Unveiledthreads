@@ -28,6 +28,7 @@ import Notifications from "./pages/Notifications";
 import Community from "./pages/Community";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
+import BuyerProtection from "./pages/BuyerProtection";
 import Account from "./pages/Account";
 import DeadStock from "./pages/DeadStock";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -64,6 +65,7 @@ function App() {
             <Route path="/community" element={<Community />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/buyer-protection" element={<BuyerProtection />} />
             <Route path="/account" element={<Account />} />
             <Route path="/dead-stock" element={<DeadStock />} />
             <Route path="/admin" element={<AdminDashboard />} />
