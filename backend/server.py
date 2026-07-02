@@ -4208,17 +4208,40 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 
-# Security headers — applied to every response.
-# - frame-ancestors 'self' (CSP, modern) + X-Frame-Options SAMEORIGIN (legacy fallback)
-#   together prevent clickjacking by blocking the site from being iframed by other origins.
-# - Other headers harden against MIME sniffing, referrer leakage and forced HTTPS.
-# - Cross-Origin-Resource-Policy: 'same-site' allows our own subdomains (e.g. CDN, static)
-#   to embed resources but blocks unrelated origins from hot-linking.
+# Security headers — applied to every response served by FastAPI.
+# NOTE ON SCOPE: this middleware only runs on `/api/*` responses because that's what
+# FastAPI serves in this deployment. The frontend HTML/JS is served separately by
+# Emergent's static hosting (Cloudflare / edge CDN), so these headers do NOT cover
+# that response. See the audit reply in chat for the hosting-layer follow-up needed.
+#
+# CSP allowlist mirrors the frontend meta-tag CSP in /app/frontend/public/index.html.
+# Keep them in sync when adding new third-party origins.
+_BACKEND_CSP = " ".join([
+    "default-src 'self';",
+    # We serve JSON only from FastAPI — no scripts should ever be executed from a
+    # backend response. Keeping 'self' + 'unsafe-inline' covers the FastAPI docs
+    # UI (Swagger) without opening the door to arbitrary CDNs.
+    "script-src 'self' 'unsafe-inline';",
+    "style-src 'self' 'unsafe-inline';",
+    "img-src 'self' data: https:;",
+    "font-src 'self' data:;",
+    # Backends never need to embed frames from anywhere.
+    "frame-src 'none';",
+    "frame-ancestors 'self';",
+    "base-uri 'self';",
+    "form-action 'self';",
+    "object-src 'none';",
+    "upgrade-insecure-requests;",
+])
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Content-Security-Policy"] = _BACKEND_CSP
+    # DENY is stricter than SAMEORIGIN. Frontend HTML is served from a separate
+    # origin anyway, so the backend never needs to be iframed by itself.
+    response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
