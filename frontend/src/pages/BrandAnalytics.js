@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import Header from '../components/Header';
-import { BarChart3, Eye, ShoppingCart, PoundSterling, TrendingUp, ArrowLeft, Loader2, Users } from 'lucide-react';
+import { BarChart3, Eye, ShoppingCart, PoundSterling, TrendingUp, ArrowLeft, Loader2, Users, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -37,6 +37,30 @@ function MiniBarChart({ data, dataKey, color = '#39FF14', height = 120 }) {
         );
       })}
     </div>
+  );
+}
+
+// Priority 2 — small trend indicator shown under each metric card.
+// value: number (percentage change) or null (no prior-period data available)
+function DeltaBadge({ value, testId }) {
+  if (value === null || value === undefined) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-[#6B7280] mt-1" data-testid={testId}>
+        <Minus className="w-3 h-3" />
+        <span className="uppercase tracking-wider">No prior data</span>
+      </span>
+    );
+  }
+  const up = value >= 0;
+  const Icon = up ? ArrowUpRight : ArrowDownRight;
+  const colour = up ? 'text-[#39FF14]' : 'text-red-400';
+  const sign = up ? '+' : '';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs ${colour} mt-1`} data-testid={testId}>
+      <Icon className="w-3 h-3" />
+      <span className="font-bold">{sign}{value}%</span>
+      <span className="text-[10px] uppercase tracking-wider text-[#6B7280]">vs prev.</span>
+    </span>
   );
 }
 
@@ -120,6 +144,7 @@ export default function BrandAnalytics() {
                   <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Views</p>
                 </div>
                 <p className="text-3xl font-bold text-white" data-testid="metric-views">{analytics.total_views}</p>
+                <DeltaBadge value={analytics.deltas?.views} testId="delta-views" />
               </div>
               <div className="border border-white/10 p-6 bg-[#0A0A0A]">
                 <div className="flex items-center gap-2 mb-3">
@@ -127,6 +152,7 @@ export default function BrandAnalytics() {
                   <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Orders</p>
                 </div>
                 <p className="text-3xl font-bold text-white" data-testid="metric-orders">{analytics.total_orders}</p>
+                <DeltaBadge value={analytics.deltas?.orders} testId="delta-orders" />
               </div>
               <div className="border border-white/10 p-6 bg-[#0A0A0A]">
                 <div className="flex items-center gap-2 mb-3">
@@ -134,6 +160,7 @@ export default function BrandAnalytics() {
                   <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Revenue</p>
                 </div>
                 <p className="text-3xl font-bold text-white" data-testid="metric-revenue">£{analytics.total_revenue.toFixed(2)}</p>
+                <DeltaBadge value={analytics.deltas?.revenue} testId="delta-revenue" />
               </div>
               <div className="border border-white/10 p-6 bg-[#0A0A0A]">
                 <div className="flex items-center gap-2 mb-3">
@@ -141,6 +168,7 @@ export default function BrandAnalytics() {
                   <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Conversion</p>
                 </div>
                 <p className="text-3xl font-bold text-white" data-testid="metric-conversion">{analytics.conversion_rate}%</p>
+                <DeltaBadge value={analytics.deltas?.conversion} testId="delta-conversion" />
               </div>
               <div className="border border-white/10 p-6 bg-[#0A0A0A]" data-testid="metric-repeat-card">
                 <div className="flex items-center gap-2 mb-3">

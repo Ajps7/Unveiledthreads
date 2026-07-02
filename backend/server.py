@@ -3484,6 +3484,10 @@ async def get_brand_analytics(request: Request, days: int = 30):
     brand_id = str(brand["_id"])
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=days)
+    # Priority 2 — prior window of identical length, immediately preceding current window.
+    # e.g. days=30 → current [now-30 .. now], prior [now-60 .. now-30].
+    prior_start = start_date - timedelta(days=days)
+    prior_end = start_date
     
     # Get brand's product IDs
     products = await db.products.find({"brand_id": brand_id}, {"_id": 1, "name": 1}).to_list(100)
@@ -3563,6 +3567,36 @@ async def get_brand_analytics(request: Request, days: int = 30):
     repeat_rate = round((repeat_buyers / unique_buyers * 100), 1) if unique_buyers > 0 else 0
     repeat_revenue = sum(rev for bid, rev in buyer_revenue.items() if buyer_orders[bid] >= 2)
     repeat_revenue_share = round((repeat_revenue / total_revenue * 100), 1) if total_revenue > 0 else 0
+
+    # -------- Priority 2: Period-over-period deltas --------
+    # Compute the same 4 headline metrics for the immediately preceding window
+    # of equal length. Returns `None` for delta when the prior window has no
+    # data — the frontend renders this as "—" (not a divide-by-zero or infinity).
+    prior_views = await db.product_views.count_documents({
+        "product_id": {"$in": product_ids},
+        "created_at": {"$gte": prior_start, "$lt": prior_end}
+    })
+    prior_orders_list = await db.orders.find({
+        "brand_id": brand_id,
+        "status": "paid",
+        "created_at": {"$gte": prior_start, "$lt": prior_end}
+    }).to_list(500)
+    prior_orders = len(prior_orders_list)
+    prior_revenue = sum(o.get("brand_payout", 0) for o in prior_orders_list)
+    prior_conversion = round((prior_orders / prior_views * 100), 2) if prior_views > 0 else 0
+
+    def _delta(current: float, prior: float):
+        """% change vs prior period. Returns None if prior is 0 (undefined)."""
+        if not prior or prior == 0:
+            return None
+        return round(((current - prior) / prior) * 100, 1)
+
+    deltas = {
+        "views": _delta(total_views, prior_views),
+        "orders": _delta(total_orders, prior_orders),
+        "revenue": _delta(total_revenue, prior_revenue),
+        "conversion": _delta(total_orders / total_views * 100 if total_views > 0 else 0, prior_conversion),
+    }
     
     # Views per product
     views_per_product_pipeline = [
@@ -3594,6 +3628,8 @@ async def get_brand_analytics(request: Request, days: int = 30):
         "repeat_buyers": repeat_buyers,
         "repeat_rate": repeat_rate,
         "repeat_revenue_share": repeat_revenue_share,
+        # Priority 2 — period-over-period deltas (%; null = no prior data)
+        "deltas": deltas,
     }
 
 # ============ REFERRAL SYSTEM ============
