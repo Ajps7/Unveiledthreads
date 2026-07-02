@@ -3544,6 +3544,26 @@ async def get_brand_analytics(request: Request, days: int = 30):
             "revenue": round(stats["revenue"], 2)
         })
     
+    # -------- Priority 1: Repeat-buyer rate --------
+    # Verified field: orders use `buyer_id` (string, mirrors user["id"]).
+    # Count orders and revenue per buyer within the window, then split by cohort.
+    buyer_orders = {}
+    buyer_revenue = {}
+    for order in orders:
+        bid = order.get("buyer_id")
+        if not bid or bid == "deleted-user":
+            # Skip orders where buyer was deleted (GDPR anonymised) — they'd
+            # otherwise all collapse into one "repeat" buyer.
+            continue
+        buyer_orders[bid] = buyer_orders.get(bid, 0) + 1
+        buyer_revenue[bid] = buyer_revenue.get(bid, 0) + order.get("brand_payout", 0)
+    
+    unique_buyers = len(buyer_orders)
+    repeat_buyers = sum(1 for count in buyer_orders.values() if count >= 2)
+    repeat_rate = round((repeat_buyers / unique_buyers * 100), 1) if unique_buyers > 0 else 0
+    repeat_revenue = sum(rev for bid, rev in buyer_revenue.items() if buyer_orders[bid] >= 2)
+    repeat_revenue_share = round((repeat_revenue / total_revenue * 100), 1) if total_revenue > 0 else 0
+    
     # Views per product
     views_per_product_pipeline = [
         {"$match": {"product_id": {"$in": product_ids}, "created_at": {"$gte": start_date}}},
@@ -3568,7 +3588,12 @@ async def get_brand_analytics(request: Request, days: int = 30):
         "daily_revenue": daily_revenue,
         "top_products": top_products,
         "top_viewed": top_viewed,
-        "conversion_rate": round((total_orders / total_views * 100), 2) if total_views > 0 else 0
+        "conversion_rate": round((total_orders / total_views * 100), 2) if total_views > 0 else 0,
+        # Priority 1 — repeat-buyer metrics (additive; existing fields untouched)
+        "unique_buyers": unique_buyers,
+        "repeat_buyers": repeat_buyers,
+        "repeat_rate": repeat_rate,
+        "repeat_revenue_share": repeat_revenue_share,
     }
 
 # ============ REFERRAL SYSTEM ============

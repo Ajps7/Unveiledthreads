@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import Header from '../components/Header';
-import { BarChart3, Eye, ShoppingCart, PoundSterling, TrendingUp, ArrowLeft, Loader2 } from 'lucide-react';
+import { BarChart3, Eye, ShoppingCart, PoundSterling, TrendingUp, ArrowLeft, Loader2, Users } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -113,7 +113,7 @@ export default function BrandAnalytics() {
         {analytics && (
           <>
             {/* Key Metrics */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
               <div className="border border-white/10 p-6 bg-[#0A0A0A]">
                 <div className="flex items-center gap-2 mb-3">
                   <Eye className="w-5 h-5 text-[#39FF14]" />
@@ -141,6 +141,20 @@ export default function BrandAnalytics() {
                   <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Conversion</p>
                 </div>
                 <p className="text-3xl font-bold text-white" data-testid="metric-conversion">{analytics.conversion_rate}%</p>
+              </div>
+              <div className="border border-white/10 p-6 bg-[#0A0A0A]" data-testid="metric-repeat-card">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className="w-5 h-5 text-[#39FF14]" />
+                  <p className="text-xs text-[#9CA3AF] uppercase tracking-wider">Repeat Buyers</p>
+                </div>
+                <p className="text-3xl font-bold text-white" data-testid="metric-repeat-rate">
+                  {analytics.repeat_rate ?? 0}%
+                </p>
+                <p className="text-[10px] text-[#9CA3AF] mt-2 leading-snug" data-testid="metric-repeat-caption">
+                  {analytics.unique_buyers > 0
+                    ? `${analytics.repeat_buyers} of ${analytics.unique_buyers} unique buyers · ${analytics.repeat_revenue_share ?? 0}% of revenue`
+                    : 'No paid orders yet in this window'}
+                </p>
               </div>
             </div>
 
