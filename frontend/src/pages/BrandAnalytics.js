@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import Header from '../components/Header';
-import { BarChart3, Eye, ShoppingCart, PoundSterling, TrendingUp, ArrowLeft, Loader2, Users, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { BarChart3, Eye, ShoppingCart, PoundSterling, TrendingUp, ArrowLeft, Loader2, Users, ArrowUpRight, ArrowDownRight, Minus, PackageX, AlertTriangle } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -185,6 +185,68 @@ export default function BrandAnalytics() {
                 </p>
               </div>
             </div>
+
+            {/* Priority 3 — Restock nudge */}
+            {analytics.restock_nudges?.length > 0 && (
+              <div
+                className="border border-yellow-500/40 bg-yellow-500/5 p-5 mb-8"
+                data-testid="restock-nudge-banner"
+              >
+                <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 border border-yellow-500/40 flex items-center justify-center">
+                      <AlertTriangle className="w-4 h-4 text-yellow-300" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-yellow-300 font-bold mb-0.5">
+                        Restock soon
+                      </p>
+                      <p className="text-xs text-[#9CA3AF]">
+                        {analytics.restock_nudges.length} best-seller
+                        {analytics.restock_nudges.length === 1 ? '' : 's'} running low.
+                        Restock now while demand&apos;s hot.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    to="/brand/listings"
+                    className="text-xs uppercase tracking-wider text-yellow-300 hover:text-yellow-200 underline"
+                    data-testid="restock-manage-link"
+                  >
+                    Manage listings →
+                  </Link>
+                </div>
+                <div className="space-y-2">
+                  {analytics.restock_nudges.map((n) => (
+                    <div
+                      key={n.product_id}
+                      className="flex items-center justify-between gap-3 py-2 border-t border-yellow-500/10 first:border-t-0"
+                      data-testid={`restock-item-${n.product_id}`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <PackageX className="w-4 h-4 text-yellow-300/70 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-white text-sm truncate">{n.name}</p>
+                          <p className="text-[10px] text-[#9CA3AF] uppercase tracking-wider">
+                            {n.orders_in_window} order{n.orders_in_window === 1 ? '' : 's'} · £{n.revenue_in_window.toFixed(2)} in window
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-xs px-2 py-1 uppercase tracking-wider whitespace-nowrap font-bold ${
+                          n.stock === 0
+                            ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                            : 'bg-yellow-500/10 text-yellow-300 border border-yellow-500/30'
+                        }`}
+                        data-testid={`restock-stock-${n.product_id}`}
+                      >
+                        {n.stock === 0 ? 'Out of stock' : `${n.stock} left`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Charts */}
             <div className="grid md:grid-cols-2 gap-6 mb-8">

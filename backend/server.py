@@ -3489,10 +3489,14 @@ async def get_brand_analytics(request: Request, days: int = 30):
     prior_start = start_date - timedelta(days=days)
     prior_end = start_date
     
-    # Get brand's product IDs
-    products = await db.products.find({"brand_id": brand_id}, {"_id": 1, "name": 1}).to_list(100)
+    # Get brand's products (include stock + is_dead_stock for restock nudge)
+    products = await db.products.find(
+        {"brand_id": brand_id},
+        {"_id": 1, "name": 1, "stock": 1, "is_dead_stock": 1}
+    ).to_list(100)
     product_ids = [str(p["_id"]) for p in products]
     product_names = {str(p["_id"]): p["name"] for p in products}
+    product_map = {str(p["_id"]): p for p in products}
     
     # Total views
     total_views = await db.product_views.count_documents({
@@ -3597,6 +3601,35 @@ async def get_brand_analytics(request: Request, days: int = 30):
         "revenue": _delta(total_revenue, prior_revenue),
         "conversion": _delta(total_orders / total_views * 100 if total_views > 0 else 0, prior_conversion),
     }
+
+    # -------- Priority 3: Restock nudge --------
+    # Surface best-selling products (by orders in window) whose stock has dropped
+    # to a low level. Excludes dead stock (those are meant to run out).
+    # Threshold is env-configurable so it can be tuned without a redeploy.
+    LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "3"))
+    restock_nudges = []
+    for pid, stats in sorted(product_sales.items(), key=lambda x: x[1]["count"], reverse=True):
+        pdoc = product_map.get(pid)
+        if not pdoc:
+            continue
+        if pdoc.get("is_dead_stock"):
+            continue
+        current_stock = int(pdoc.get("stock", 0) or 0)
+        if current_stock > LOW_STOCK_THRESHOLD:
+            continue
+        # Only nudge if it actually sold something in the window — no point telling
+        # the seller to restock a product nobody wants.
+        if stats["count"] < 1:
+            continue
+        restock_nudges.append({
+            "product_id": pid,
+            "name": pdoc.get("name", "Unknown"),
+            "stock": current_stock,
+            "orders_in_window": stats["count"],
+            "revenue_in_window": round(stats["revenue"], 2),
+        })
+        if len(restock_nudges) >= 5:  # cap so the UI stays tidy
+            break
     
     # Views per product
     views_per_product_pipeline = [
@@ -3630,6 +3663,8 @@ async def get_brand_analytics(request: Request, days: int = 30):
         "repeat_revenue_share": repeat_revenue_share,
         # Priority 2 — period-over-period deltas (%; null = no prior data)
         "deltas": deltas,
+        # Priority 3 — restock nudges (best-sellers in window with low stock)
+        "restock_nudges": restock_nudges,
     }
 
 # ============ REFERRAL SYSTEM ============
