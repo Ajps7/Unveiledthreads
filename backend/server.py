@@ -4038,8 +4038,28 @@ async def delete_product_comment(product_id: str, comment_id: str, request: Requ
 # ============ SEED DATA ============
 
 async def seed_admin():
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@ukstreetwear.com").lower()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
+    admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "").strip()
+    environment = os.environ.get("ENVIRONMENT", "development").strip().lower()
+
+    # Refuse to seed with baked-in defaults in production. The old defaults
+    # (admin@ukstreetwear.com / Admin123!) would otherwise silently create a
+    # known-credential admin on every restart if the env vars were forgotten.
+    if not admin_email or not admin_password:
+        if environment == "production":
+            logger.critical(
+                "REFUSING to seed admin: ADMIN_EMAIL and ADMIN_PASSWORD must be set "
+                "in production environment variables. Admin account NOT created."
+            )
+            return
+        # Dev-only fallback with a clear log line so nobody deploys this by accident
+        admin_email = admin_email or "admin@ukstreetwear.com"
+        admin_password = admin_password or "Admin123!"
+        logger.warning(
+            "Using DEV admin credentials (%s). Set ADMIN_EMAIL and ADMIN_PASSWORD "
+            "env vars in production.", admin_email
+        )
+
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
         hashed = hash_password(admin_password)
@@ -4065,6 +4085,10 @@ async def seed_admin():
         logger.info("Admin role restored")
 
 async def seed_demo_data():
+    # NEVER seed demo data in production. The demo brand ships with a hardcoded
+    # password ("Demo123!") so must not exist on any real deployment.
+    if os.environ.get("ENVIRONMENT", "development").strip().lower() == "production":
+        return
     # Check if we already have demo data
     brand_count = await db.brands.count_documents({})
     if brand_count > 0:
@@ -4297,8 +4321,59 @@ else:
         allow_headers=["*"],
     )
 
+def _validate_env_or_die():
+    """Fail-closed check for every critical env var. Runs at app startup.
+    In production, missing critical secrets = hard fail (process exits).
+    In development, missing secrets = loud warning but the app continues so devs
+    can work on non-affected areas."""
+    environment = os.environ.get("ENVIRONMENT", "development").strip().lower()
+
+    # (key, description, weakens_if_missing)
+    critical = [
+        ("MONGO_URL", "Database connection", "cannot start"),
+        ("DB_NAME", "Database name", "cannot start"),
+        ("JWT_SECRET", "Signing key for auth cookies", "auth is completely broken"),
+        ("STRIPE_API_KEY", "Payment processing", "checkout is broken"),
+        ("STRIPE_WEBHOOK_SECRET", "Account-webhook signature verification", "webhook can be forged"),
+        ("STRIPE_CONNECT_WEBHOOK_SECRET", "Connect-webhook signature verification", "Connect events can be forged"),
+        ("CORS_ORIGINS", "CORS allowlist", "cross-site attacks possible (falls back to hard-coded prod domain)"),
+        ("RESEND_API_KEY", "Transactional email", "email flows fail silently"),
+        ("EMERGENT_LLM_KEY", "AI moderation + image storage", "moderation degrades to regex-only"),
+        ("ADMIN_EMAIL", "Admin seed email", "admin account seeding is skipped"),
+        ("ADMIN_PASSWORD", "Admin seed password", "admin account seeding is skipped"),
+    ]
+
+    missing = [(k, desc, impact) for k, desc, impact in critical if not os.environ.get(k, "").strip()]
+
+    if not missing:
+        logger.info("Env validation OK — all critical secrets present")
+        return
+
+    if environment == "production":
+        logger.critical("=" * 70)
+        logger.critical("REFUSING TO START — missing critical env vars in production:")
+        for k, desc, impact in missing:
+            logger.critical(f"  - {k}: {desc}. Without it: {impact}")
+        logger.critical("Set the above in Emergent Secrets Hub and redeploy.")
+        logger.critical("=" * 70)
+        raise RuntimeError(
+            f"Cannot start in production without: {', '.join(k for k, _, _ in missing)}"
+        )
+    else:
+        logger.warning("=" * 70)
+        logger.warning("Env vars missing (dev mode — continuing anyway):")
+        for k, desc, impact in missing:
+            logger.warning(f"  - {k}: {desc}. Without it: {impact}")
+        logger.warning("=" * 70)
+
+
 @app.on_event("startup")
 async def startup_event():
+    # Boot-time validation — refuse to start in production if any critical
+    # secret is missing. This is the safety net that stops the app from
+    # deploying in a permissively-configured state.
+    _validate_env_or_die()
+    
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.brands.create_index("user_id")
@@ -4353,25 +4428,27 @@ async def startup_event():
     await seed_admin()
     await seed_demo_data()
     
-    # Write test credentials
-    memory_dir = Path("/app/memory")
-    memory_dir.mkdir(exist_ok=True)
-    with open(memory_dir / "test_credentials.md", "w") as f:
-        f.write("# Test Credentials\n\n")
-        f.write("## Admin Account\n")
-        f.write(f"- Email: {os.environ.get('ADMIN_EMAIL', 'admin@ukstreetwear.com')}\n")
-        f.write(f"- Password: {os.environ.get('ADMIN_PASSWORD', 'Admin123!')}\n")
-        f.write("- Role: admin\n\n")
-        f.write("## Demo Brand Account\n")
-        f.write("- Email: demo@threadandbone.uk\n")
-        f.write("- Password: Demo123!\n")
-        f.write("- Role: brand\n\n")
-        f.write("## Auth Endpoints\n")
-        f.write("- POST /api/auth/register\n")
-        f.write("- POST /api/auth/login\n")
-        f.write("- POST /api/auth/logout\n")
-        f.write("- GET /api/auth/me\n")
-        f.write("- POST /api/auth/refresh\n")
+    # Write test credentials file — DEV ONLY. Never write cleartext admin
+    # credentials on production, where the file could leak via a mis-mounted volume.
+    if os.environ.get("ENVIRONMENT", "development").strip().lower() != "production":
+        memory_dir = Path("/app/memory")
+        memory_dir.mkdir(exist_ok=True)
+        with open(memory_dir / "test_credentials.md", "w") as f:
+            f.write("# Test Credentials (dev environment only)\n\n")
+            f.write("## Admin Account\n")
+            f.write(f"- Email: {os.environ.get('ADMIN_EMAIL', 'admin@ukstreetwear.com')}\n")
+            f.write(f"- Password: {os.environ.get('ADMIN_PASSWORD', 'Admin123!')}\n")
+            f.write("- Role: admin\n\n")
+            f.write("## Demo Brand Account\n")
+            f.write("- Email: demo@threadandbone.uk\n")
+            f.write("- Password: Demo123!\n")
+            f.write("- Role: brand\n\n")
+            f.write("## Auth Endpoints\n")
+            f.write("- POST /api/auth/register\n")
+            f.write("- POST /api/auth/login\n")
+            f.write("- POST /api/auth/logout\n")
+            f.write("- GET /api/auth/me\n")
+            f.write("- POST /api/auth/refresh\n")
     
     logger.info("Application started successfully")
 
