@@ -60,6 +60,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 2026-02: Switched `load_dotenv()` to `load_dotenv(override=True)` so `.env` always wins over pod-inherited env vars (pod was silently overriding STRIPE_API_KEY with `sk_test_emergent`).
 - 2026-02: Verified Referrals "Coming Soon" redirect page renders correctly
 - 2026-02: **GDPR Compliance Pass 1** — added `/privacy` Privacy Policy page (UK GDPR/DPA 2018 compliant), `/account` settings page with self-service Data Export (Art. 20) and Account Deletion (Art. 17), and a strictly-necessary cookies banner. Backend: `GET /api/account/export` returns full JSON dump (excluding `_id`/`password_hash`), `POST /api/account/delete` requires password + "DELETE" confirmation, cascades across all collections, anonymises orders for HMRC retention.
+- 2026-06: **Fee line everywhere + Payouts widget** — `GET /api/orders/status/{session_id}` now returns an `order` receipt object (price / platform_fee / shipping / total); OrderSuccess page shows a full receipt card; MyOrders expanded view shows a Receipt breakdown with a "Buyer Protection" line. New `GET /api/connect/payouts` (Stripe Balance + Account schedule + Payout list on the connected account) powers a Payouts widget on BrandDashboard (Available / Pending / Next payout / Last payout); returns `{connected:false}` gracefully and the widget hides when the brand has no Stripe account. A seeded paid demo order (`session_id=cs_test_receipt_demo_123`, buyer demo@threadandbone.uk, £65 + £3.74 BP + £4.99 ship = £73.73) remains in the dev DB for receipt testing.
 - 2026-06: **Buyer fee restructure** — flat 4% replaced by "Buyer Protection" fee: `min(subtotal*0.05 + 0.49, 6.00)` paid by buyer, once per order, on item subtotal only (not shipping). Sellers unchanged (receive 100% of price + shipping). `calculate_buyer_fee()` in server.py; frontend shared config `/app/frontend/src/lib/fees.js`. Stripe checkout now shows 3 line items (product / Buyer Protection / shipping); `application_fee_amount` uses new fee in pence. Copy updated: ProductDetail (with info tooltip), AddProduct "Buyer sees" preview, BrandDashboard, Terms §6.1/6.2/liability cap, BuyerProtection page. Note: orders are single-item, so "once per order" is trivially true; if a multi-item basket is ever added, fee must be computed once on combined subtotal.
 - Earlier: Instagram & website removed from brand profiles; admin credentials updated; T&Cs; community + advanced filters
 
@@ -68,8 +69,8 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - (none queued — user dropped product colour variants)
 
 ### P2 (backlog)
-- Stripe Connect Phase 3 (Payouts widget on Brand Dashboard)
-- Stripe Connect Phase 4 (refunds with `reverse_transfer=True`)
+- Stripe Connect Phase 3 (Payouts widget on Brand Dashboard) — DONE 2026-06
+- Stripe Connect Phase 4 (refunds with `reverse_transfer=True`) — DONE (Buyer Protection disputes)
 - Push notifications (currently short-polling)
 - Refactor `server.py` into modular routes (it's ~3500 lines)
 - **GDPR Hardening Pass 2**: Admin 2FA (TOTP), field-level encryption for shipping addresses at rest, log redaction middleware, ICO registration reminder in admin panel, DPA template links for Stripe/Resend/Atlas.

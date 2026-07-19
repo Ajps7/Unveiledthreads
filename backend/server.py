@@ -2402,6 +2402,53 @@ async def connect_dashboard_link(request: Request):
         logger.error(f"Stripe Connect login link failed: {e}")
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
+@api_router.get("/connect/payouts")
+async def connect_payouts(request: Request):
+    """Stripe balance + next payout info for the brand's connected account."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand or not brand.get("stripe_account_id"):
+        return {"connected": False}
+    
+    account_id = brand["stripe_account_id"]
+    stripe_sdk.api_key = os.environ.get("STRIPE_API_KEY")
+    try:
+        balance, account, payouts = await asyncio.gather(
+            asyncio.to_thread(stripe_sdk.Balance.retrieve, stripe_account=account_id),
+            asyncio.to_thread(stripe_sdk.Account.retrieve, account_id),
+            asyncio.to_thread(stripe_sdk.Payout.list, limit=10, stripe_account=account_id),
+        )
+    except Exception as e:
+        logger.error(f"Stripe payouts fetch failed: {e}")
+        return {"connected": False, "error": "Could not reach Stripe"}
+    
+    def _sum_gbp(entries):
+        return round(sum(e["amount"] for e in entries if e["currency"] == "gbp") / 100, 2)
+    
+    def _iso(ts):
+        return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+    
+    schedule = ((account.get("settings") or {}).get("payouts") or {}).get("schedule") or {}
+    next_payout = None
+    last_payout = None
+    for p in payouts.get("data", []):
+        if next_payout is None and p["status"] in ("pending", "in_transit"):
+            next_payout = {"amount": round(p["amount"] / 100, 2), "arrival_date": _iso(p["arrival_date"]), "status": p["status"]}
+        if last_payout is None and p["status"] == "paid":
+            last_payout = {"amount": round(p["amount"] / 100, 2), "arrival_date": _iso(p["arrival_date"])}
+    
+    return {
+        "connected": True,
+        "payouts_enabled": bool(account.get("payouts_enabled")),
+        "available": _sum_gbp(balance["available"]),
+        "pending": _sum_gbp(balance["pending"]),
+        "currency": "gbp",
+        "schedule_interval": schedule.get("interval"),
+        "schedule_delay_days": schedule.get("delay_days"),
+        "next_payout": next_payout,
+        "last_payout": last_payout,
+    }
+
 # ============ BUYER PROTECTION / DISPUTES ============
 # v1 — Non-Delivery Buyer Protection:
 # Buyers can open a dispute on an order if they haven't received it. Eligibility
@@ -2985,6 +3032,17 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     
     return {"url": session.url, "session_id": session.id}
 
+def _order_receipt(order: dict) -> dict:
+    return {
+        "product_name": order.get("product_name"),
+        "brand_name": order.get("brand_name"),
+        "size": order.get("size"),
+        "price": order.get("price"),
+        "platform_fee": order.get("platform_fee"),
+        "shipping_cost": order.get("shipping_cost"),
+        "total_charged": order.get("total_charged"),
+    }
+
 @api_router.get("/orders/status/{session_id}")
 async def get_order_status(session_id: str, request: Request):
     user = await get_current_user(request)
@@ -2997,7 +3055,7 @@ async def get_order_status(session_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Not authorized")
     
     if order.get("status") == "paid":
-        return {"status": "complete", "payment_status": "paid", "already_processed": True}
+        return {"status": "complete", "payment_status": "paid", "already_processed": True, "order": _order_receipt(order)}
     
     api_key = os.environ.get("STRIPE_API_KEY")
     
@@ -3040,7 +3098,7 @@ async def get_order_status(session_id: str, request: Request):
             metadata={"order_session_id": session_id}
         )
     
-    return {"status": status_data["status"], "payment_status": status_data["payment_status"]}
+    return {"status": status_data["status"], "payment_status": status_data["payment_status"], "order": _order_receipt(order)}
 
 @api_router.get("/orders/my-orders")
 async def get_my_orders(request: Request):

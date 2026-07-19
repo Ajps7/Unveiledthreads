@@ -13,6 +13,7 @@ export default function OrderSuccess() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [status, setStatus] = useState('checking');
+  const [order, setOrder] = useState(null);
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
@@ -33,6 +34,7 @@ export default function OrderSuccess() {
       const response = await axios.get(`${API}/api/orders/status/${sessionId}`, { withCredentials: true });
 
       if (response.data.payment_status === 'paid') {
+        if (response.data.order) setOrder(response.data.order);
         setStatus('success');
         return;
       } else if (response.data.status === 'expired') {
@@ -71,6 +73,19 @@ export default function OrderSuccess() {
             <p className="text-[#9CA3AF] mb-8">
               Thank you for supporting an independent UK brand! The brand will be notified of your order.
             </p>
+            {order && (
+              <div className="max-w-sm mx-auto mb-8 border border-white/10 bg-[#0A0A0A] p-5 text-left text-sm" data-testid="order-receipt">
+                <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-3">Receipt</p>
+                <p className="text-white font-bold mb-1">{order.product_name}</p>
+                <p className="text-xs text-[#9CA3AF] mb-4">{order.brand_name} · Size {order.size}</p>
+                <div className="space-y-1.5 text-[#9CA3AF]">
+                  <div className="flex justify-between"><span>Item</span><span className="text-white">£{(order.price ?? 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Buyer Protection</span><span className="text-white" data-testid="receipt-buyer-protection">£{(order.platform_fee ?? 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Shipping</span><span className="text-white">{order.shipping_cost > 0 ? `£${order.shipping_cost.toFixed(2)}` : 'Free'}</span></div>
+                  <div className="flex justify-between border-t border-white/10 pt-2 mt-2 font-bold text-white"><span>Total</span><span data-testid="receipt-total">£{(order.total_charged ?? 0).toFixed(2)}</span></div>
+                </div>
+              </div>
+            )}
             <div className="flex gap-4 justify-center">
               <Link to="/products">
                 <Button className="btn-primary" data-testid="continue-shopping-button">
