@@ -3357,6 +3357,111 @@ async def run_low_stock_digest(request: Request):
     report = await send_low_stock_digests()
     return {"processed": len(report), "report": report}
 
+# ============ ABANDONED CHECKOUT WIN-BACK ============
+
+ABANDONED_MIN_AGE_MINUTES = int(os.environ.get("ABANDONED_MIN_AGE_MINUTES", "60"))
+ABANDONED_MAX_AGE_HOURS = int(os.environ.get("ABANDONED_MAX_AGE_HOURS", "48"))
+
+async def send_abandoned_checkout_emails() -> list:
+    """Win-back email for buyers who started checkout but never paid.
+    One email per order, sent 1-48h after the checkout was initiated."""
+    now = datetime.now(timezone.utc)
+    newest = now - timedelta(minutes=ABANDONED_MIN_AGE_MINUTES)
+    oldest = now - timedelta(hours=ABANDONED_MAX_AGE_HOURS)
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    report = []
+    
+    cursor = db.orders.find({
+        "status": {"$in": ["initiated", "unpaid", "expired"]},
+        "abandoned_email_sent": {"$ne": True},
+        "created_at": {"$gte": oldest, "$lte": newest},
+    })
+    async for order in cursor:
+        buyer_email = order.get("buyer_email")
+        if not buyer_email:
+            continue
+        # Skip if they completed the purchase in another session
+        paid = await db.orders.find_one({
+            "buyer_id": order["buyer_id"],
+            "product_id": order["product_id"],
+            "status": "paid",
+        })
+        if paid:
+            await db.orders.update_one({"_id": order["_id"]}, {"$set": {"abandoned_email_sent": True}})
+            continue
+        # Skip if the product is gone or sold out
+        product = await db.products.find_one({"_id": safe_object_id(order["product_id"])})
+        if not product or int(product.get("stock", 0) or 0) <= 0:
+            await db.orders.update_one({"_id": order["_id"]}, {"$set": {"abandoned_email_sent": True}})
+            continue
+        
+        stock = int(product.get("stock", 0) or 0)
+        scarcity = f'<p style="color:#FACC15;font-size:13px;margin:0 0 4px;">Only {stock} left in stock</p>' if stock <= 5 else ""
+        product_url = f"{frontend_url}/products/{order['product_id']}" if frontend_url else ""
+        cta = (
+            f'<p style="margin:24px 0;"><a href="{product_url}" style="color:#000;background:#39FF14;padding:14px 28px;text-decoration:none;font-weight:bold;display:inline-block;">COMPLETE YOUR ORDER</a></p>'
+            if product_url else ""
+        )
+        html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+            <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+            <hr style="border:1px solid #27272A;margin:16px 0;">
+            <h2 style="color:#fff;font-size:20px;">You left something behind</h2>
+            <p style="color:#9CA3AF;line-height:1.6;">
+                Your <strong style="color:#fff;">{order.get('product_name', '')}</strong> (Size {order.get('size', '')}) from
+                <strong style="color:#fff;">{order.get('brand_name', '')}</strong> is still waiting in checkout.
+            </p>
+            <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
+                {scarcity}
+                <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{order.get('product_name', '')}</p>
+                <p style="color:#9CA3AF;font-size:12px;margin:0 0 8px;">{order.get('brand_name', '')} &middot; Size {order.get('size', '')}</p>
+                <p style="color:#C0C0C0;font-size:18px;font-weight:bold;margin:0;">£{(order.get('price') or 0):.2f}</p>
+            </div>
+            {cta}
+            <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
+                Independent drops don't restock like the big brands — once it's gone, it's gone.
+                Every purchase is covered by Unveiled Threads Buyer Protection.
+            </p>
+            <hr style="border:1px solid #27272A;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+        </div>
+        """
+        entry = {"order_id": str(order["_id"]), "email": buyer_email, "product": order.get("product_name"), "sent": False}
+        try:
+            if RESEND_API_KEY:
+                params = {
+                    "from": SENDER_EMAIL,
+                    "to": [buyer_email],
+                    "subject": f"Still want it? {order.get('product_name', 'Your order')} is waiting | Unveiled Threads",
+                    "html": html,
+                }
+                await asyncio.to_thread(resend.Emails.send, params)
+                logger.info(f"[ABANDONED CHECKOUT EMAIL SENT] To: {buyer_email} | {order.get('product_name')}")
+            else:
+                logger.info(f"[MOCK ABANDONED CHECKOUT EMAIL] To: {buyer_email} | {order.get('product_name')}")
+            entry["sent"] = True
+            await db.orders.update_one({"_id": order["_id"]}, {"$set": {"abandoned_email_sent": True}})
+        except Exception as e:
+            entry["error"] = str(e)
+            logger.warning(f"[ABANDONED CHECKOUT EMAIL FAILED] To: {buyer_email} | {e}")
+        report.append(entry)
+    return report
+
+async def abandoned_checkout_loop():
+    while True:
+        try:
+            await send_abandoned_checkout_emails()
+        except Exception as e:
+            logger.error(f"Abandoned checkout loop error: {e}")
+        await asyncio.sleep(30 * 60)
+
+@api_router.post("/admin/abandoned-checkout/run")
+async def run_abandoned_checkout(request: Request):
+    """Admin: manually trigger the abandoned checkout win-back run."""
+    await require_admin(request)
+    report = await send_abandoned_checkout_emails()
+    return {"processed": len(report), "report": report}
+
 @api_router.get("/notifications")
 async def get_notifications(request: Request):
     user = await get_current_user(request)
