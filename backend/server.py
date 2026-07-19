@@ -958,15 +958,16 @@ async def export_my_data(request: Request):
 
     user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
     brand_doc = await db.brands.find_one({"user_id": user_id})
+    brand_id = str(brand_doc["_id"]) if brand_doc else None
     applications = await db.brand_applications.find({"user_id": user_id}).to_list(1000)
-    products = await db.products.find({"brand_id": brand_doc["id"]}).to_list(1000) if brand_doc else []
+    products = await db.products.find({"brand_id": brand_id}).to_list(1000) if brand_id else []
     orders_as_buyer = await db.orders.find({"buyer_id": user_id}).to_list(1000)
-    orders_as_seller = await db.orders.find({"brand_id": brand_doc["id"]}).to_list(1000) if brand_doc else []
+    orders_as_seller = await db.orders.find({"brand_id": brand_id}).to_list(1000) if brand_id else []
     conversations = await db.conversations.find({"participants": user_id}).to_list(1000)
-    convo_ids = [c.get("id") for c in conversations]
+    convo_ids = [str(c["_id"]) for c in conversations]
     messages = await db.messages.find({"conversation_id": {"$in": convo_ids}}).to_list(5000) if convo_ids else []
     notifications = await db.notifications.find({"user_id": user_id}).to_list(1000)
-    wishlist = await db.wishlists.find({"user_id": user_id}).to_list(1000)
+    wishlist = await db.wishlist.find({"user_id": user_id}).to_list(1000)
     reviews = await db.reviews.find({"buyer_id": user_id}).to_list(1000)
     community_posts = await db.community_posts.find({"user_id": user_id}).to_list(1000)
     community_comments = await db.community_comments.find({"user_id": user_id}).to_list(1000)
