@@ -13,6 +13,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
+import json
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 import bcrypt
@@ -994,7 +995,7 @@ async def export_my_data(request: Request):
         "payment_transactions": [_serialise_doc(d) for d in payment_transactions],
     }
     headers = {"Content-Disposition": f'attachment; filename="unveiled-threads-export-{user_id}.json"'}
-    return Response(content=__import__("json").dumps(export, indent=2), media_type="application/json", headers=headers)
+    return Response(content=json.dumps(export, indent=2), media_type="application/json", headers=headers)
 
 
 @api_router.post("/account/delete")
@@ -2191,9 +2192,8 @@ async def stripe_webhook(request: Request):
             "Add STRIPE_WEBHOOK_SECRET (and STRIPE_CONNECT_WEBHOOK_SECRET for Connect) before going live."
         )
         try:
-            import json as _json
             raw_event = stripe_sdk.Event.construct_from(
-                _json.loads(body.decode("utf-8")), api_key
+                json.loads(body.decode("utf-8")), api_key
             )
         except Exception as e:
             logger.error(f"Webhook parse failed: {e}")

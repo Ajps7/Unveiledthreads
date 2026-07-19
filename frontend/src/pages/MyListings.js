@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -58,14 +58,7 @@ export default function MyListings() {
   const [requestedQuota, setRequestedQuota] = useState('20');
   const [requestReason, setRequestReason] = useState('');
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) { navigate('/login'); return; }
-    if (user.role !== 'brand' && user.role !== 'admin') { navigate('/apply'); return; }
-    fetchData();
-  }, [user, authLoading, navigate]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const appRes = await axios.get(`${API}/api/brands/my-application`, { withCredentials: true });
       if (appRes.data?.brand_profile) {
@@ -85,7 +78,14 @@ export default function MyListings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { navigate('/login'); return; }
+    if (user.role !== 'brand' && user.role !== 'admin') { navigate('/apply'); return; }
+    fetchData();
+  }, [user, authLoading, navigate, fetchData]);
 
   const openMoveToDeadStock = (product) => {
     setDeadStockDialog({ product, mode: 'add' });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -105,12 +105,7 @@ export default function MyOrders() {
     return Math.max(0, Math.ceil(14 - days));
   };
 
-  useEffect(() => {
-    if (authLoading || !user) return;
-    fetchOrders();
-  }, [user, authLoading]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/api/orders/my-orders`, { withCredentials: true });
       setOrders(response.data);
@@ -130,7 +125,12 @@ export default function MyOrders() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    fetchOrders();
+  }, [user, authLoading, fetchOrders]);
 
   const openDispute = (order) => {
     setDisputeOrder(order);

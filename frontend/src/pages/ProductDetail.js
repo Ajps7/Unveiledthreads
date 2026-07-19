@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -58,11 +58,7 @@ export default function ProductDetail() {
   const [reviews, setReviews] = useState({ reviews: [], count: 0, avg_product_rating: 0, avg_brand_rating: 0 });
   const [showFeeInfo, setShowFeeInfo] = useState(false);
 
-  useEffect(() => {
-    fetchProduct();
-  }, [id]);
-
-  const fetchProduct = async () => {
+  const fetchProduct = useCallback(async () => {
     try {
       const [prodRes, revRes] = await Promise.all([
         axios.get(`${API}/api/products/${id}`),
@@ -78,7 +74,11 @@ export default function ProductDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    fetchProduct();
+  }, [fetchProduct]);
 
   const handlePurchase = async () => {
     if (!user) { window.location.href = '/login'; return; }
@@ -347,17 +347,17 @@ function ProductComments({ productId, user }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchComments();
-  }, [productId]);
-
-  const fetchComments = async () => {
+  const fetchComments = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/products/${productId}/comments`);
       setComments(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  };
+  }, [productId]);
+
+  useEffect(() => {
+    fetchComments();
+  }, [fetchComments]);
 
   const handleSend = async (e) => {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -15,16 +15,7 @@ export default function OrderSuccess() {
   const [status, setStatus] = useState('checking');
   const [order, setOrder] = useState(null);
 
-  useEffect(() => {
-    const sessionId = searchParams.get('session_id');
-    if (!sessionId) {
-      setStatus('error');
-      return;
-    }
-    pollPaymentStatus(sessionId);
-  }, [searchParams]);
-
-  const pollPaymentStatus = async (sessionId, attemptNum = 0) => {
+  const pollPaymentStatus = useCallback(async (sessionId, attemptNum = 0) => {
     if (attemptNum >= 5) {
       setStatus('timeout');
       return;
@@ -47,7 +38,16 @@ export default function OrderSuccess() {
       console.error('Error checking payment status:', error);
       setStatus('error');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const sessionId = searchParams.get('session_id');
+    if (!sessionId) {
+      setStatus('error');
+      return;
+    }
+    pollPaymentStatus(sessionId);
+  }, [searchParams, pollPaymentStatus]);
 
   return (
     <div className="min-h-screen bg-[#050505]">

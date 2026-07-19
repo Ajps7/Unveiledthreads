@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -56,12 +56,6 @@ export default function AdminDashboard() {
     }
     fetchData();
   }, [user, authLoading, navigate]);
-
-  useEffect(() => {
-    if (!authLoading && user?.role === 'admin') {
-      fetchApplications();
-    }
-  }, [statusFilter, user, authLoading]);
 
   const fetchData = async () => {
     try {
@@ -159,14 +153,20 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchApplications = async () => {
+  const fetchApplications = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/api/admin/applications?status=${statusFilter}`, { withCredentials: true });
       setApplications(response.data);
     } catch (error) {
       console.error('Error fetching applications:', error);
     }
-  };
+  }, [statusFilter]);
+
+  useEffect(() => {
+    if (!authLoading && user?.role === 'admin') {
+      fetchApplications();
+    }
+  }, [user, authLoading, fetchApplications]);
 
   const handleApprove = async (applicationId) => {
     setProcessing(applicationId);

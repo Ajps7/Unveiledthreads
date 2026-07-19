@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -78,12 +78,32 @@ export default function Messages() {
   const messagesEndRef = useRef(null);
   const pollRef = useRef(null);
 
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/api/conversations`, { withCredentials: true });
+      setConversations(res.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchMessages = useCallback(async (convoId) => {
+    try {
+      const res = await axios.get(`${API}/api/conversations/${convoId}/messages`, { withCredentials: true });
+      setMessages(res.data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/login'); return; }
     fetchConversations();
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, fetchConversations]);
 
   useEffect(() => {
     if (activeConvo) {
@@ -93,31 +113,11 @@ export default function Messages() {
       pollRef.current = setInterval(() => fetchMessages(activeConvo.id), 5000);
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [activeConvo]);
+  }, [activeConvo, fetchMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  const fetchConversations = async () => {
-    try {
-      const res = await axios.get(`${API}/api/conversations`, { withCredentials: true });
-      setConversations(res.data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchMessages = async (convoId) => {
-    try {
-      const res = await axios.get(`${API}/api/conversations/${convoId}/messages`, { withCredentials: true });
-      setMessages(res.data);
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   const handleSend = async (e) => {
     e.preventDefault();

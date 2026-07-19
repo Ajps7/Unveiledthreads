@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -71,14 +71,7 @@ export default function BrandAnalytics() {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('30');
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user) { navigate('/login'); return; }
-    if (user.role !== 'brand' && user.role !== 'admin') { navigate('/'); return; }
-    fetchAnalytics();
-  }, [user, authLoading, period, navigate]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     try {
       const response = await axios.get(`${API}/api/analytics/brand?days=${period}`, { withCredentials: true });
@@ -88,7 +81,14 @@ export default function BrandAnalytics() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [period]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { navigate('/login'); return; }
+    if (user.role !== 'brand' && user.role !== 'admin') { navigate('/'); return; }
+    fetchAnalytics();
+  }, [user, authLoading, navigate, fetchAnalytics]);
 
   if (authLoading || loading) {
     return (

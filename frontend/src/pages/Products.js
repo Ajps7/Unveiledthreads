@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Search, X, SlidersHorizontal, ChevronDown, ChevronUp, Truck } from 'lucide-react';
@@ -95,46 +95,35 @@ export default function Products() {
     is_dead_stock: searchParams.get('is_dead_stock') === 'true',
   });
 
-  useEffect(() => {
-    fetchCategories();
-    fetchFilterOptions();
-  }, []);
+  const searchQueryRef = useRef(searchQuery);
+  useEffect(() => { searchQueryRef.current = searchQuery; }, [searchQuery]);
 
-  useEffect(() => {
-    fetchProducts();
-    countActiveFilters();
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (user) fetchWishlistIds();
-  }, [user]);
-
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/categories`);
       setCategories(res.data);
     } catch (e) { console.error(e); }
-  };
+  }, []);
 
-  const fetchFilterOptions = async () => {
+  const fetchFilterOptions = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/products/filter-options`);
       setFilterOptions(res.data);
     } catch (e) { console.error(e); }
-  };
+  }, []);
 
-  const fetchWishlistIds = async () => {
+  const fetchWishlistIds = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/wishlist/ids`, { withCredentials: true });
       setWishlistIds(res.data);
-    } catch (e) { /* ignore */ }
-  };
+    } catch (e) { /* not logged in — wishlist unavailable */ }
+  }, []);
 
   const handleWishlistToggle = (productId, nowWishlisted) => {
     setWishlistIds(prev => nowWishlisted ? [...prev, productId] : prev.filter(id => id !== productId));
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -157,27 +146,41 @@ export default function Products() {
       setProducts(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  };
+  }, [searchParams]);
 
-  const countActiveFilters = () => {
+  const countActiveFilters = useCallback(() => {
     let count = 0;
     for (const [key, val] of searchParams.entries()) {
       if (key === 'search' || key === 'sort') continue;
       if (val && val !== 'all' && val !== '' && val !== 'false') count++;
     }
     setActiveFilterCount(count);
-  };
+  }, [searchParams]);
 
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     const params = new URLSearchParams();
-    if (searchQuery) params.set('search', searchQuery);
+    if (searchQueryRef.current) params.set('search', searchQueryRef.current);
     for (const [key, val] of Object.entries(filters)) {
       if (val && val !== 'all' && val !== '' && val !== false) {
         params.set(key, val.toString());
       }
     }
     setSearchParams(params);
-  };
+  }, [filters, setSearchParams]);
+
+  useEffect(() => {
+    fetchCategories();
+    fetchFilterOptions();
+  }, [fetchCategories, fetchFilterOptions]);
+
+  useEffect(() => {
+    fetchProducts();
+    countActiveFilters();
+  }, [fetchProducts, countActiveFilters]);
+
+  useEffect(() => {
+    if (user) fetchWishlistIds();
+  }, [user, fetchWishlistIds]);
 
   const updateFilter = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -198,11 +201,11 @@ export default function Products() {
     applyFilters();
   };
 
-  // Auto-apply when filters change
+  // Auto-apply when filters change (applyFilters identity tracks `filters`)
   useEffect(() => {
     const timeout = setTimeout(() => applyFilters(), 300);
     return () => clearTimeout(timeout);
-  }, [filters]);
+  }, [applyFilters]);
 
   return (
     <div className="min-h-screen bg-[#050505]">

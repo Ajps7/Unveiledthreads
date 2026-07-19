@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
@@ -104,17 +104,17 @@ function CommentsPanel({ post, user, onClose }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchComments();
-  }, [post.id]);
-
-  const fetchComments = async () => {
+  const fetchComments = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/api/community/posts/${post.id}/comments`);
       setComments(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  };
+  }, [post.id]);
+
+  useEffect(() => {
+    fetchComments();
+  }, [fetchComments]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -200,25 +200,25 @@ export default function Community() {
   const [showComments, setShowComments] = useState(null);
   const [brands, setBrands] = useState([]);
 
-  useEffect(() => {
-    fetchPosts();
-    fetchBrands();
-  }, [sortBy]);
-
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API}/api/community/posts?sort=${sortBy}`);
       setPosts(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  };
+  }, [sortBy]);
+
+  useEffect(() => {
+    fetchPosts();
+    fetchBrands();
+  }, [fetchPosts]);
 
   const fetchBrands = async () => {
     try {
       const res = await axios.get(`${API}/api/brands`);
       setBrands(res.data);
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.debug('Brands fetch failed (non-critical):', e); }
   };
 
   const handlePost = async (e) => {

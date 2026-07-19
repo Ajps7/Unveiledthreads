@@ -1,0 +1,57 @@
+{
+  "summary": "Regression testing after code review refactors (top-level `import json` in server.py, useCallback wrappers across 11 pages). Refactors verified — no behaviour changes. 5/6 backend regression tests pass; all frontend pages load & refetch correctly with NO infinite loops. One PRE-EXISTING backend bug found in /api/account/export unrelated to the refactor.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/account/export",
+        "issue": "Returns 500 due to `KeyError: 'id'` at server.py:962 — `brand_doc['id']` when brand_doc doc has only `_id` (ObjectId), not a normalized string `id`. The `json.dumps` refactor itself is CORRECT — the crash happens on line 962, BEFORE the json.dumps call on line 998, so this is a pre-existing data-shape bug (not caused by the refactor). Also affects line 964 (orders_as_seller).",
+        "priority": "HIGH",
+        "fix_hint": "Use `brand_doc.get('id') or str(brand_doc['_id'])` (and same for line 964), OR normalize brand_doc via existing `_serialise_doc`/id helper before use."
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_refactors": [
+    "server.py:16 top-level `import json` — used by /api/account/export (json.dumps) and Stripe webhook (json.loads); no NameError on unsigned webhook.",
+    "Products.js — /products page loads, search & filters do NOT trigger infinite fetch loops (0 delta in 5s idle).",
+    "ProductDetail.js — page loads, testids buyer-protection-fee-line & buyer-protection-info-button present, tooltip text (data-testid buyer-protection-info-text) appears on click.",
+    "MyOrders.js — /orders loads for demo user, Signature Hoodie order expands, Total £73.73, Buyer Protection £3.74, tracking AB123456789GB all present, receipt-* testid rendered, no fetch loop.",
+    "OrderSuccess.js — /order/success?session_id=cs_test_receipt_demo_123 shows 'Order Confirmed', order-receipt & receipt-total testids present, pollPaymentStatus refactor stable (no runaway polling: 0 delta after 6s idle).",
+    "MyListings.js — /brand/products loads clean, no loop.",
+    "BrandDashboard.js — /brand/dashboard loads with stripe-connect-panel testid (payouts-widget correctly absent per no-Stripe-key policy).",
+    "BrandAnalytics.js — /brand/analytics loads, no fetch loop.",
+    "Messages.js — /messages loads without crash or request storm.",
+    "Community.js — /community feed loads, no loop.",
+    "DeadStock.js — /dead-stock loads (empty archive), no loop.",
+    "AdminDashboard.js — /admin loads full dashboard (stats + applications + disputes). Changing Brand Applications filter from Pending → Waitlisted triggered exactly 1 refetch and settled (fetchApplications useCallback([statusFilter]) works). No 'duplicate fetchData' bug — page renders cleanly."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_regression.py",
+    "/app/test_reports/pytest/iter9_regression.xml"
+  ],
+  "action_items": [
+    "Fix /api/account/export KeyError at server.py:962 (and :964) — use `brand_doc.get('id')` fallback or normalize via _serialise_doc. NOT caused by the json refactor — pre-existing."
+  ],
+  "critical_code_review_comments": [
+    "server.py:962,964: unguarded `brand_doc['id']` access assumes normalized id field, but Motor returns `_id` (ObjectId). Add defensive `.get('id')` + fallback or normalize brand_doc upfront.",
+    "server.py is ~5047 lines — consider splitting into routers (orders, brands, admin, community, webhooks) for maintainability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_regression.py (new)"
+  ],
+  "success_rate": {
+    "backend": "83% (5/6)",
+    "frontend": "100% (12/12 regression flows)"
+  },
+  "test_credentials": "used demo@threadandbone.uk / Demo123! and Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159 from /app/memory/test_credentials.md",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The 11-page useCallback refactor is confirmed regression-safe (no infinite loops on any page). Backend `import json` refactor works. Only outstanding issue: /api/account/export KeyError on brand_doc['id'] (pre-existing data-shape bug at server.py:962/964, not from this refactor).",
+  "rca of the issue": "Endpoint code at server.py:962 does `products = await db.products.find({'brand_id': brand_doc['id']}).to_list(1000) if brand_doc else []`. For the demo user, `brand_doc` exists (they have brand role) but the raw Motor document only has `_id`, not a string `id` key — hence KeyError. The subsequent json.dumps line (998) is never reached, proving the refactor itself is fine. Fix: replace `brand_doc['id']` with `str(brand_doc.get('id') or brand_doc['_id'])` on lines 962 and 964, or serialize brand_doc first."
+}

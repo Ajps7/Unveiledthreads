@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
@@ -19,11 +19,7 @@ export default function DeadStock() {
   const [sort, setSort] = useState('latest');
   const [minDiscount, setMinDiscount] = useState('all');
 
-  useEffect(() => {
-    fetchProducts();
-  }, [sort, minDiscount]);
-
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ sort });
@@ -35,7 +31,11 @@ export default function DeadStock() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sort, minDiscount]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   return (
     <div className="min-h-screen bg-[#050505]" data-testid="dead-stock-page">
