@@ -51,8 +51,10 @@ export default function BuyerProtection() {
               <p className="text-sm text-white font-bold mb-2">In short</p>
               <p className="text-sm text-[#C0C0C0] leading-relaxed">
                 If your order doesn&apos;t arrive within 14 days of payment and the seller can&apos;t resolve it,
-                we&apos;ll refund you in full. No extra fee, no fine print &mdash; you&apos;re covered automatically
-                on every purchase.
+                we&apos;ll refund you in full. Buyer Protection (5% + &pound;0.49, max &pound;6 per order) is added
+                at checkout on every purchase &mdash; it funds your money-back guarantee, easy returns and our
+                hand-vetting of independent brands, and it&apos;s how we keep the platform commission-free for
+                independent brands.
               </p>
             </div>
           </div>

@@ -2,13 +2,13 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp, Info } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import Header from '../components/Header';
+import { calcBuyerFee, BUYER_PROTECTION_TOOLTIP } from '../lib/fees';
 
 const API = process.env.REACT_APP_BACKEND_URL;
-const PLATFORM_FEE_PERCENT = 4;
 
 function StarRating({ rating, size = 16 }) {
   return (
@@ -56,6 +56,7 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [reviews, setReviews] = useState({ reviews: [], count: 0, avg_product_rating: 0, avg_brand_rating: 0 });
+  const [showFeeInfo, setShowFeeInfo] = useState(false);
 
   useEffect(() => {
     fetchProduct();
@@ -121,7 +122,7 @@ export default function ProductDetail() {
   }
 
   const shippingCost = product.shipping_cost || 0;
-  const platformFee = (product.price * PLATFORM_FEE_PERCENT / 100);
+  const platformFee = calcBuyerFee(product.price);
   const totalPrice = product.price + platformFee + shippingCost;
 
   return (
@@ -194,7 +195,23 @@ export default function ProductDetail() {
 
             {/* Price breakdown */}
             <div className="text-xs text-[#9CA3AF] mb-6 space-y-1">
-              <p>+ £{platformFee.toFixed(2)} platform fee</p>
+              <p className="flex items-center gap-1.5" data-testid="buyer-protection-fee-line">
+                + £{platformFee.toFixed(2)} Buyer Protection
+                <button
+                  type="button"
+                  onClick={() => setShowFeeInfo(!showFeeInfo)}
+                  aria-label="What is Buyer Protection?"
+                  className="text-[#9CA3AF] hover:text-[#39FF14] transition-colors"
+                  data-testid="buyer-protection-info-button"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              </p>
+              {showFeeInfo && (
+                <p className="text-[11px] leading-relaxed bg-[#0F0F0F] border border-white/10 p-3 max-w-md" data-testid="buyer-protection-info-text">
+                  {BUYER_PROTECTION_TOOLTIP}
+                </p>
+              )}
               {shippingCost > 0 && (
                 <p className="flex items-center gap-1"><Truck className="w-3 h-3" /> + £{shippingCost.toFixed(2)} shipping</p>
               )}

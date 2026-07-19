@@ -14,6 +14,7 @@ import {
 } from '../components/ui/select';
 import Header from '../components/Header';
 import ImageUpload from '../components/ImageUpload';
+import { calcBuyerFee } from '../lib/fees';
 import { ArrowLeft, Plus, X, Loader2, Upload, Trash2 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -402,7 +403,7 @@ export default function AddProduct() {
                 <div className="flex items-baseline gap-2">
                   <span className="text-2xl font-bold text-white">£{parseFloat(form.price || 0).toFixed(2)}</span>
                   <span className="text-sm text-[#9CA3AF]">
-                    + £{(parseFloat(form.price || 0) * 0.04).toFixed(2)} platform fee
+                    + £{calcBuyerFee(parseFloat(form.price || 0)).toFixed(2)} Buyer Protection fee
                     {parseFloat(form.shipping_cost || 0) > 0 ? ` + £${parseFloat(form.shipping_cost).toFixed(2)} shipping` : ' + free shipping'}
                   </span>
                 </div>

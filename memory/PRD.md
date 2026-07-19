@@ -6,7 +6,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 ## Architecture
 - Frontend: React + Tailwind + Shadcn UI (brutalist black/silver/neon green #39FF14)
 - Backend: FastAPI + MongoDB (~2700 lines in server.py — candidate for refactor)
-- Payments: Stripe (boosts + purchases with **4% platform fee** + shipping) — LIVE test keys set (sk_test_51TO33K...)
+- Payments: Stripe (boosts + purchases with **Buyer Protection fee: 5% of subtotal + £0.49, capped £6.00/order** + shipping) — LIVE test keys set (sk_test_51TO33K...)
 - Auth: JWT httpOnly cookies
 - Storage: Emergent Object Storage
 - Emails: Resend (LIVE)
@@ -20,7 +20,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - Brand profiles with logo/banner — **NO external links (Instagram/website removed)** to prevent off-app sales
 - Brand of the Week (admin-set)
 - Boosted Brand promotions (Stripe)
-- Buyer purchase flow (4% platform fee + shipping) via Stripe
+- Buyer purchase flow (Buyer Protection fee 5% + £0.49 capped £6 + shipping) via Stripe
 - Order tracking + Vinted-style shipping timeline
 - Shipping labels (Shippo when key set, mock otherwise)
 - Reviews & Ratings (product + brand)
@@ -60,7 +60,8 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 2026-02: Switched `load_dotenv()` to `load_dotenv(override=True)` so `.env` always wins over pod-inherited env vars (pod was silently overriding STRIPE_API_KEY with `sk_test_emergent`).
 - 2026-02: Verified Referrals "Coming Soon" redirect page renders correctly
 - 2026-02: **GDPR Compliance Pass 1** — added `/privacy` Privacy Policy page (UK GDPR/DPA 2018 compliant), `/account` settings page with self-service Data Export (Art. 20) and Account Deletion (Art. 17), and a strictly-necessary cookies banner. Backend: `GET /api/account/export` returns full JSON dump (excluding `_id`/`password_hash`), `POST /api/account/delete` requires password + "DELETE" confirmation, cascades across all collections, anonymises orders for HMRC retention.
-- Earlier: Platform fee set to 4%; Instagram & website removed from brand profiles; admin credentials updated; T&Cs; community + advanced filters
+- 2026-06: **Buyer fee restructure** — flat 4% replaced by "Buyer Protection" fee: `min(subtotal*0.05 + 0.49, 6.00)` paid by buyer, once per order, on item subtotal only (not shipping). Sellers unchanged (receive 100% of price + shipping). `calculate_buyer_fee()` in server.py; frontend shared config `/app/frontend/src/lib/fees.js`. Stripe checkout now shows 3 line items (product / Buyer Protection / shipping); `application_fee_amount` uses new fee in pence. Copy updated: ProductDetail (with info tooltip), AddProduct "Buyer sees" preview, BrandDashboard, Terms §6.1/6.2/liability cap, BuyerProtection page. Note: orders are single-item, so "once per order" is trivially true; if a multi-item basket is ever added, fee must be computed once on combined subtotal.
+- Earlier: Instagram & website removed from brand profiles; admin credentials updated; T&Cs; community + advanced filters
 
 ## Roadmap
 ### P1 (next)
@@ -79,5 +80,7 @@ See `/app/memory/test_credentials.md`.
 ## Critical Rules
 - DO NOT re-add Instagram / website links to brand profiles (anti off-app sales policy)
 - DO NOT bypass / weaken content moderation in messages & comments
-- Platform fee is 4% (env `PLATFORM_FEE_PERCENT=4`)
+- Buyer fee is "Buyer Protection": min(subtotal×0.05 + £0.49, £6.00), buyer-paid, sellers keep 100% of price + shipping (env overrides: PLATFORM_FEE_RATE / PLATFORM_FEE_FIXED / PLATFORM_FEE_CAP)
+- User language: English (UK spelling)
+errides: PLATFORM_FEE_RATE / PLATFORM_FEE_FIXED / PLATFORM_FEE_CAP)
 - User language: English (UK spelling)

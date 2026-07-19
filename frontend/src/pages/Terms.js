@@ -177,10 +177,12 @@ export default function Terms() {
             <SectionHeading>6. Pricing, fees &amp; payments</SectionHeading>
             <SubHeading>6.1 Pricing structure</SubHeading>
             <p>
-              All prices are listed in GBP (£) and set exclusively by individual Sellers. A non-negotiable platform fee of <strong className="text-white">4%</strong> is
-              applied to each transaction to support Platform operation and development. Shipping costs are set per product by the Seller and
-              displayed at checkout prior to payment. The total charged to the Buyer comprises: product price + platform fee + shipping cost.
-              Sellers receive: product price + shipping cost. The Platform retains the 4% fee.
+              All prices are listed in GBP (£) and set exclusively by individual Sellers. A non-negotiable Buyer Protection fee of{' '}
+              <strong className="text-white">5% of the order subtotal + £0.49, capped at £6.00 per order</strong>, is added at checkout and
+              paid by the Buyer. It funds our money-back guarantee, easy returns and brand vetting, and keeps the Platform commission-free
+              for independent brands. The fee applies once per order, on the combined subtotal. Shipping costs are set per product by the
+              Seller and displayed at checkout prior to payment. The total charged to the Buyer comprises: product price + Buyer Protection
+              fee + shipping cost. Sellers receive: product price + shipping cost in full. The Platform retains the Buyer Protection fee.
             </p>
             <SubHeading>6.2 Fee non-refundability</SubHeading>
             <p>
@@ -246,7 +248,7 @@ export default function Terms() {
                 of or in connection with these Terms or your use of the Platform shall not exceed the <strong>lower</strong> of:
               </p>
               <ul className="list-[lower-alpha] pl-5 mt-2 space-y-1">
-                <li>the total platform fees collected from or attributable to you in the 3-month period immediately preceding the event giving rise to the claim; or</li>
+                <li>the total Buyer Protection fees collected from or attributable to you in the 3-month period immediately preceding the event giving rise to the claim; or</li>
                 <li>£100 (one hundred pounds sterling).</li>
               </ul>
               <p className="mt-2">This cap applies to all claims in aggregate, not per incident.</p>

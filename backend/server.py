@@ -73,8 +73,13 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "unveiled-threads"
 storage_key = None
 
-# Platform fee config
-PLATFORM_FEE_PERCENT = float(os.environ.get("PLATFORM_FEE_PERCENT", "10"))
+# Buyer Protection fee config: 5% of subtotal + £0.49, capped at £6.00 per order (paid by buyer)
+PLATFORM_FEE_RATE = float(os.environ.get("PLATFORM_FEE_RATE", "0.05"))
+PLATFORM_FEE_FIXED = float(os.environ.get("PLATFORM_FEE_FIXED", "0.49"))
+PLATFORM_FEE_CAP = float(os.environ.get("PLATFORM_FEE_CAP", "6.00"))
+
+def calculate_buyer_fee(subtotal: float) -> float:
+    return round(min(subtotal * PLATFORM_FEE_RATE + PLATFORM_FEE_FIXED, PLATFORM_FEE_CAP), 2)
 
 # Resend email config
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
@@ -2862,10 +2867,10 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             detail="This brand hasn't completed Stripe payment onboarding yet. Please check back soon.",
         )
     
-    # Calculate platform fee and shipping
+    # Calculate Buyer Protection fee (once per order, on the combined subtotal) and shipping
     product_price = product["price"]
     shipping_cost = product.get("shipping_cost", 0)
-    platform_fee = round(product_price * PLATFORM_FEE_PERCENT / 100, 2)
+    platform_fee = calculate_buyer_fee(product_price)
     total_price = round(product_price + platform_fee + shipping_cost, 2)
     
     api_key = os.environ.get("STRIPE_API_KEY")
@@ -2885,24 +2890,48 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "shipping_cost": str(shipping_cost),
     }
     
+    line_items = [
+        {
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {
+                    "name": f"{product['name']} (Size: {purchase.size})",
+                    "description": f"Sold by {product['brand_name']} via Unveiled Threads",
+                },
+                "unit_amount": int(round(product_price * 100)),
+            },
+            "quantity": 1,
+        },
+        {
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {
+                    "name": "Buyer Protection",
+                    "description": "5% + £0.49 (max £6): money-back guarantee, easy returns, and hand-vetted independent brands",
+                },
+                "unit_amount": int(round(platform_fee * 100)),
+            },
+            "quantity": 1,
+        },
+    ]
+    if shipping_cost > 0:
+        line_items.append({
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {"name": "Shipping"},
+                "unit_amount": int(round(shipping_cost * 100)),
+            },
+            "quantity": 1,
+        })
+    
     try:
         # Direct charge: payment is processed on the seller's connected account
         # (passed via stripe_account header). The seller is liable for chargebacks.
-        # Platform takes its 4% via `application_fee_amount`.
+        # Platform takes the Buyer Protection fee (5% + £0.49, max £6) via `application_fee_amount`.
         session = await asyncio.to_thread(
             stripe_sdk.checkout.Session.create,
             mode="payment",
-            line_items=[{
-                "price_data": {
-                    "currency": "gbp",
-                    "product_data": {
-                        "name": f"{product['name']} (Size: {purchase.size})",
-                        "description": f"Sold by {product['brand_name']} via Unveiled Threads",
-                    },
-                    "unit_amount": int(round(total_price * 100)),
-                },
-                "quantity": 1,
-            }],
+            line_items=line_items,
             success_url=success_url,
             cancel_url=cancel_url,
             metadata=metadata,

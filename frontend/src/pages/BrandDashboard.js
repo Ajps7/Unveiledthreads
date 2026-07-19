@@ -534,7 +534,7 @@ export default function BrandDashboard() {
                   {fullyConnected ? (
                     <>
                       <p className="text-[#9CA3AF] mb-4">
-                        Your brand is set up to receive payments. Buyers pay through Unveiled Threads, we take a 4% platform fee, and the rest goes straight to your bank via Stripe.
+                        Your brand is set up to receive payments. Buyers pay through Unveiled Threads plus a small Buyer Protection fee (5% + £0.49, max £6 per order) — you keep 100% of your listed price and shipping, paid straight to your bank via Stripe.
                       </p>
                       <Button
                         className="btn-secondary"
