@@ -46,7 +46,7 @@ async def export_my_data(request: Request):
     products = await db.products.find({"brand_id": brand_id}).to_list(1000) if brand_id else []
     orders_as_buyer = await db.orders.find({"buyer_id": user_id}).to_list(1000)
     orders_as_seller = await db.orders.find({"brand_id": brand_id}).to_list(1000) if brand_id else []
-    conversations = await db.conversations.find({"participants": user_id}).to_list(1000)
+    conversations = await db.conversations.find({"$or": [{"participant_1": user_id}, {"participant_2": user_id}]}).to_list(1000)
     convo_ids = [str(c["_id"]) for c in conversations]
     messages = await db.messages.find({"conversation_id": {"$in": convo_ids}}).to_list(5000) if convo_ids else []
     notifications = await db.notifications.find({"user_id": user_id}).to_list(1000)
@@ -104,7 +104,7 @@ async def delete_my_account(payload: DeleteAccountRequest, request: Request, res
 
     # Resolve brand id (if any) before we wipe the brand row
     brand_doc = await db.brands.find_one({"user_id": user_id})
-    brand_id = brand_doc.get("id") if brand_doc else None
+    brand_id = str(brand_doc["_id"]) if brand_doc else None
 
     # 1. Anonymise orders (we keep them for tax/accounting but strip PII)
     anon_buyer = {"$set": {"buyer_id": "deleted-user", "shipping_address": None, "buyer_email": None, "buyer_name": "Deleted User"}}
@@ -116,29 +116,27 @@ async def delete_my_account(payload: DeleteAccountRequest, request: Request, res
     await db.brand_applications.delete_many({"user_id": user_id})
     if brand_id:
         await db.products.delete_many({"brand_id": brand_id})
-        await db.brands.delete_one({"id": brand_id})
-    await db.wishlists.delete_many({"user_id": user_id})
+        await db.brands.delete_one({"_id": brand_doc["_id"]})
+    await db.wishlist.delete_many({"user_id": user_id})
     await db.notifications.delete_many({"user_id": user_id})
     await db.community_posts.delete_many({"user_id": user_id})
     await db.community_comments.delete_many({"user_id": user_id})
     await db.product_comments.delete_many({"user_id": user_id})
     await db.reviews.delete_many({"buyer_id": user_id})
     await db.referrals.delete_many({"user_id": user_id})
-    await db.referral_uses.delete_many({"$or": [{"referrer_id": user_id}, {"referred_user_id": user_id}]})
+    await db.referral_uses.delete_many({"$or": [{"referrer_id": user_id}, {"user_id": user_id}]})
     await db.password_reset_tokens.delete_many({"user_id": user_id})
     await db.product_views.delete_many({"user_id": user_id})
 
-    # 3. Messages — anonymise sender content references (keep message bodies redacted)
-    convs = await db.conversations.find({"participants": user_id}).to_list(1000)
+    # 3. Messages — redact this user's message bodies and detach them from conversations
+    convs = await db.conversations.find({"$or": [{"participant_1": user_id}, {"participant_2": user_id}]}).to_list(1000)
     for c in convs:
         await db.messages.update_many(
-            {"conversation_id": c.get("id"), "sender_id": user_id},
+            {"conversation_id": str(c["_id"]), "sender_id": user_id},
             {"$set": {"sender_id": "deleted-user", "content": "[message removed — account deleted]"}}
         )
-    await db.conversations.update_many(
-        {"participants": user_id},
-        {"$pull": {"participants": user_id}}
-    )
+    await db.conversations.update_many({"participant_1": user_id}, {"$set": {"participant_1": "deleted-user"}})
+    await db.conversations.update_many({"participant_2": user_id}, {"$set": {"participant_2": "deleted-user"}})
 
     # 4. Finally delete the user row itself
     await db.users.delete_one({"_id": ObjectId(user_id)})

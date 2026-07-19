@@ -57,6 +57,14 @@ export default function ProductDetail() {
   const [purchasing, setPurchasing] = useState(false);
   const [reviews, setReviews] = useState({ reviews: [], count: 0, avg_product_rating: 0, avg_brand_rating: 0 });
   const [showFeeInfo, setShowFeeInfo] = useState(false);
+  const [referralCredit, setReferralCredit] = useState(0);
+
+  useEffect(() => {
+    if (!user) { setReferralCredit(0); return; }
+    axios.get(`${API}/api/referral/credits`, { withCredentials: true })
+      .then((res) => setReferralCredit(res.data.credits_available || 0))
+      .catch(() => setReferralCredit(0));
+  }, [user]);
 
   const fetchProduct = useCallback(async () => {
     try {
@@ -123,7 +131,8 @@ export default function ProductDetail() {
 
   const shippingCost = product.shipping_cost || 0;
   const platformFee = calcBuyerFee(product.price);
-  const totalPrice = product.price + platformFee + shippingCost;
+  const creditApplied = Math.min(referralCredit, platformFee);
+  const totalPrice = product.price + platformFee - creditApplied + shippingCost;
 
   return (
     <div className="min-h-screen bg-[#050505]">
@@ -210,6 +219,11 @@ export default function ProductDetail() {
               {showFeeInfo && (
                 <p className="text-[11px] leading-relaxed bg-[#0F0F0F] border border-white/10 p-3 max-w-md" data-testid="buyer-protection-info-text">
                   {BUYER_PROTECTION_TOOLTIP}
+                </p>
+              )}
+              {creditApplied > 0 && (
+                <p className="text-[#39FF14]" data-testid="referral-credit-line">
+                  − £{creditApplied.toFixed(2)} referral credit applied at checkout
                 </p>
               )}
               {shippingCost > 0 && (

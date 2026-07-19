@@ -56,6 +56,7 @@ def get_stripe_session_status(session_id: str, api_key: str, stripe_account: Opt
         "payment_status": session.payment_status,
         "amount_total": session.amount_total,
         "currency": session.currency,
+        "payment_intent": getattr(session, "payment_intent", None),
         "metadata": metadata
     }
 

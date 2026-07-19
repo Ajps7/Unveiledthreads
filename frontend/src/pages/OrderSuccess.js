@@ -81,6 +81,9 @@ export default function OrderSuccess() {
                 <div className="space-y-1.5 text-[#9CA3AF]">
                   <div className="flex justify-between"><span>Item</span><span className="text-white">£{(order.price ?? 0).toFixed(2)}</span></div>
                   <div className="flex justify-between"><span>Buyer Protection</span><span className="text-white" data-testid="receipt-buyer-protection">£{(order.platform_fee ?? 0).toFixed(2)}</span></div>
+                  {order.credit_applied > 0 && (
+                    <div className="flex justify-between"><span>Referral credit</span><span className="text-[#39FF14]">-£{order.credit_applied.toFixed(2)}</span></div>
+                  )}
                   <div className="flex justify-between"><span>Shipping</span><span className="text-white">{order.shipping_cost > 0 ? `£${order.shipping_cost.toFixed(2)}` : 'Free'}</span></div>
                   <div className="flex justify-between border-t border-white/10 pt-2 mt-2 font-bold text-white"><span>Total</span><span data-testid="receipt-total">£{(order.total_charged ?? 0).toFixed(2)}</span></div>
                 </div>

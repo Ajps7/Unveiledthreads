@@ -337,6 +337,9 @@ export default function MyOrders() {
                       <div className="space-y-1 text-xs text-[#9CA3AF] max-w-xs">
                         <div className="flex justify-between"><span>Item</span><span className="text-white">£{(order.price ?? 0).toFixed(2)}</span></div>
                         <div className="flex justify-between"><span>Buyer Protection</span><span className="text-white" data-testid={`receipt-bp-${order.id}`}>£{(order.platform_fee ?? 0).toFixed(2)}</span></div>
+                        {order.credit_applied > 0 && (
+                          <div className="flex justify-between"><span>Referral credit</span><span className="text-[#39FF14]">-£{order.credit_applied.toFixed(2)}</span></div>
+                        )}
                         <div className="flex justify-between"><span>Shipping</span><span className="text-white">{order.shipping_cost > 0 ? `£${order.shipping_cost.toFixed(2)}` : 'Free'}</span></div>
                         <div className="flex justify-between border-t border-white/5 pt-1 mt-1 font-bold text-white"><span>Total</span><span>£{(order.total_charged ?? order.price ?? 0).toFixed(2)}</span></div>
                       </div>

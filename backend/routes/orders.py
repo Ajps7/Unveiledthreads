@@ -34,7 +34,16 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     product_price = product["price"]
     shipping_cost = product.get("shipping_cost", 0)
     platform_fee = calculate_buyer_fee(product_price)
-    total_price = round(product_price + platform_fee + shipping_cost, 2)
+    
+    # Auto-apply available referral credit against the Buyer Protection fee
+    credit_applied = 0.0
+    referral = await db.referrals.find_one({"user_id": user["id"]})
+    if referral:
+        available = round(referral.get("credits_earned", 0) - referral.get("credits_used", 0), 2)
+        if available > 0:
+            credit_applied = round(min(available, platform_fee), 2)
+    fee_charged = round(platform_fee - credit_applied, 2)
+    total_price = round(product_price + fee_charged + shipping_cost, 2)
     
     api_key = os.environ.get("STRIPE_API_KEY")
     stripe_sdk.api_key = api_key
@@ -49,7 +58,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "brand_id": product["brand_id"],
         "size": purchase.size,
         "product_price": str(product_price),
-        "platform_fee": str(platform_fee),
+        "platform_fee": str(fee_charged),
         "shipping_cost": str(shipping_cost),
     }
     
@@ -65,18 +74,19 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             },
             "quantity": 1,
         },
-        {
+    ]
+    if fee_charged > 0:
+        fee_desc = "5% + £0.49 (max £6): money-back guarantee, easy returns, and hand-vetted independent brands"
+        if credit_applied > 0:
+            fee_desc += f" (£{credit_applied:.2f} referral credit applied)"
+        line_items.append({
             "price_data": {
                 "currency": "gbp",
-                "product_data": {
-                    "name": "Buyer Protection",
-                    "description": "5% + £0.49 (max £6): money-back guarantee, easy returns, and hand-vetted independent brands",
-                },
-                "unit_amount": int(round(platform_fee * 100)),
+                "product_data": {"name": "Buyer Protection", "description": fee_desc},
+                "unit_amount": int(round(fee_charged * 100)),
             },
             "quantity": 1,
-        },
-    ]
+        })
     if shipping_cost > 0:
         line_items.append({
             "price_data": {
@@ -86,6 +96,11 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             },
             "quantity": 1,
         })
+    
+    payment_intent_data = {"metadata": metadata}
+    fee_pence = int(round(fee_charged * 100))
+    if fee_pence > 0:
+        payment_intent_data["application_fee_amount"] = fee_pence
     
     try:
         # Direct charge: payment is processed on the seller's connected account
@@ -98,10 +113,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             success_url=success_url,
             cancel_url=cancel_url,
             metadata=metadata,
-            payment_intent_data={
-                "application_fee_amount": int(round(platform_fee * 100)),
-                "metadata": metadata,
-            },
+            payment_intent_data=payment_intent_data,
             stripe_account=brand_doc["stripe_account_id"],
         )
     except Exception as e:
@@ -121,7 +133,8 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "size": purchase.size,
         "price": product_price,
         "shipping_cost": shipping_cost,
-        "platform_fee": platform_fee,
+        "platform_fee": fee_charged,
+        "credit_applied": credit_applied,
         "total_charged": total_price,
         "brand_payout": product_price + shipping_cost,
         "stripe_account_id": brand_doc["stripe_account_id"],
@@ -155,6 +168,7 @@ def _order_receipt(order: dict) -> dict:
         "size": order.get("size"),
         "price": order.get("price"),
         "platform_fee": order.get("platform_fee"),
+        "credit_applied": order.get("credit_applied") or 0,
         "shipping_cost": order.get("shipping_cost"),
         "total_charged": order.get("total_charged"),
     }
@@ -169,6 +183,11 @@ async def send_order_receipt_email(order: dict):
     frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
     row_style = "padding:8px 0;border-bottom:1px solid #27272A;color:#9CA3AF;font-size:14px;"
     val_style = "padding:8px 0;border-bottom:1px solid #27272A;color:#FFFFFF;font-size:14px;text-align:right;"
+    credit = order.get("credit_applied") or 0
+    credit_row = (
+        f'<tr><td style="{row_style}">Referral credit</td><td style="{val_style}">-£{credit:.2f}</td></tr>'
+        if credit > 0 else ""
+    )
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
         <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
@@ -185,6 +204,7 @@ async def send_order_receipt_email(order: dict):
             <table style="width:100%;border-collapse:collapse;">
                 <tr><td style="{row_style}">Item</td><td style="{val_style}">£{(order.get('price') or 0):.2f}</td></tr>
                 <tr><td style="{row_style}">Buyer Protection</td><td style="{val_style}">£{(order.get('platform_fee') or 0):.2f}</td></tr>
+                {credit_row}
                 <tr><td style="{row_style}">Shipping</td><td style="{val_style}">{shipping_str}</td></tr>
                 <tr><td style="padding:10px 0;color:#fff;font-weight:bold;font-size:15px;">Total</td>
                     <td style="padding:10px 0;color:#39FF14;font-weight:bold;font-size:15px;text-align:right;">£{(order.get('total_charged') or 0):.2f}</td></tr>
@@ -215,6 +235,114 @@ async def send_order_receipt_email(order: dict):
     except Exception as e:
         logger.warning(f"[RECEIPT EMAIL FAILED] To: {buyer_email} | {e}")
 
+async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None) -> bool:
+    """Idempotent order settlement: atomically claims the order, deducts stock,
+    grants referral credit, consumes applied credit, notifies the brand and
+    emails the buyer's receipt. Safe to call from the buyer poll AND the
+    reconciliation sweep — only the first caller settles."""
+    now = datetime.now(timezone.utc)
+    update = {"status": "paid", "stock_deducted": True, "settled_at": now}
+    if payment_intent_id:
+        update["payment_intent_id"] = payment_intent_id
+    claim = await db.orders.update_one(
+        {"_id": order["_id"], "stock_deducted": {"$ne": True}},
+        {"$set": update}
+    )
+    if claim.modified_count == 0:
+        return False
+    
+    await db.products.update_one(
+        {"_id": ObjectId(order["product_id"])},
+        {"$inc": {"stock": -1}}
+    )
+    
+    # Referral: credit the referrer on the buyer's first paid order (atomic flag flip)
+    ref_use = await db.referral_uses.find_one_and_update(
+        {"user_id": order["buyer_id"], "credit_pending": True},
+        {"$set": {"credit_pending": False, "credited_at": now}},
+    )
+    if ref_use:
+        await db.referrals.update_one(
+            {"user_id": ref_use["referrer_id"]},
+            {"$inc": {"credits_earned": REFERRAL_CREDIT}, "$addToSet": {"referred_users": order["buyer_id"]}},
+        )
+        await create_notification(
+            user_id=ref_use["referrer_id"],
+            brand_id=None,
+            notification_type="referral_credit",
+            title="You've earned referral credit!",
+            message=f"£{REFERRAL_CREDIT:.2f} credit added — someone you invited made their first purchase. It'll be applied to the Buyer Protection fee on your next order.",
+            metadata={"order_id": str(order["_id"])},
+        )
+    
+    # Consume any referral credit that was applied to this order at checkout
+    credit_applied = order.get("credit_applied") or 0
+    if credit_applied > 0:
+        await db.referrals.update_one(
+            {"user_id": order["buyer_id"]},
+            {"$inc": {"credits_used": credit_applied}}
+        )
+    
+    await create_notification(
+        user_id=None,
+        brand_id=order["brand_id"],
+        notification_type="order_received",
+        title="New Order Received!",
+        message=f"New order for {order['product_name']} (Size: {order['size']}) from {order['buyer_name']}. Payout: £{order['brand_payout']:.2f}",
+        metadata={"order_session_id": order["session_id"]}
+    )
+    
+    if not order.get("receipt_email_sent"):
+        await send_order_receipt_email(order)
+    return True
+
+async def reconcile_pending_orders() -> list:
+    """Settle paid-but-unreturned orders (buyer paid on Stripe then closed the tab)
+    and expire dead sessions. Returns ids of orders settled this run."""
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        return []
+    now = datetime.now(timezone.utc)
+    settled = []
+    cursor = db.orders.find({
+        "status": {"$in": ["initiated", "unpaid"]},
+        "created_at": {"$gte": now - timedelta(days=7), "$lte": now - timedelta(minutes=15)},
+    })
+    async for order in cursor:
+        try:
+            status_data = await asyncio.to_thread(
+                get_stripe_session_status, order["session_id"], api_key,
+                stripe_account=order.get("stripe_account_id"),
+            )
+        except Exception as e:
+            logger.warning(f"Reconcile: session fetch failed for {order['session_id']}: {e}")
+            continue
+        if status_data["payment_status"] == "paid":
+            if await settle_paid_order(order, payment_intent_id=status_data.get("payment_intent")):
+                logger.info(f"[RECONCILED] Order {order['_id']} settled without buyer returning")
+                settled.append(str(order["_id"]))
+        elif status_data["status"] == "expired":
+            await db.orders.update_one(
+                {"_id": order["_id"], "status": {"$in": ["initiated", "unpaid"]}},
+                {"$set": {"status": "expired"}}
+            )
+    return settled
+
+async def order_reconciliation_loop():
+    while True:
+        try:
+            await reconcile_pending_orders()
+        except Exception as e:
+            logger.error(f"Order reconciliation loop error: {e}")
+        await asyncio.sleep(10 * 60)
+
+@api_router.post("/admin/orders/reconcile")
+async def run_order_reconciliation(request: Request):
+    """Admin: manually trigger the paid-order reconciliation sweep."""
+    await require_admin(request)
+    settled = await reconcile_pending_orders()
+    return {"settled": settled, "count": len(settled)}
+
 @api_router.get("/orders/status/{session_id}")
 async def get_order_status(session_id: str, request: Request):
     user = await get_current_user(request)
@@ -239,40 +367,18 @@ async def get_order_status(session_id: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     
-    await db.orders.update_one(
-        {"session_id": session_id},
-        {"$set": {"status": status_data["payment_status"]}}
-    )
     await db.payment_transactions.update_one(
         {"session_id": session_id},
         {"$set": {"payment_status": status_data["payment_status"], "status": status_data["status"]}}
     )
     
-    # If paid and not already processed
-    if status_data["payment_status"] == "paid" and not order.get("stock_deducted"):
-        # Deduct stock
-        await db.products.update_one(
-            {"_id": ObjectId(order["product_id"])},
-            {"$inc": {"stock": -1}}
-        )
+    if status_data["payment_status"] == "paid":
+        await settle_paid_order(order, payment_intent_id=status_data.get("payment_intent"))
+    else:
         await db.orders.update_one(
-            {"session_id": session_id},
-            {"$set": {"stock_deducted": True}}
+            {"session_id": session_id, "stock_deducted": {"$ne": True}},
+            {"$set": {"status": status_data["payment_status"]}}
         )
-        
-        # Send notification to brand
-        await create_notification(
-            user_id=None,
-            brand_id=order["brand_id"],
-            notification_type="order_received",
-            title="New Order Received!",
-            message=f"New order for {order['product_name']} (Size: {order['size']}) from {order['buyer_name']}. Payout: £{order['brand_payout']:.2f}",
-            metadata={"order_session_id": session_id}
-        )
-        
-        # Email the buyer a branded receipt (once per order)
-        if not order.get("receipt_email_sent"):
-            await send_order_receipt_email(order)
     
     return {"status": status_data["status"], "payment_status": status_data["payment_status"], "order": _order_receipt(order)}
 

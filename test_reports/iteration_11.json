@@ -1,0 +1,35 @@
+{
+  "summary": "Verified 6 fixes for Unveiled Threads. Backend: 43/43 split_regression PASS + 6/6 new iter11 fix tests PASS. Frontend: FIX 5 credit line renders correctly (− £4.74 referral credit applied at checkout, Total £89.99); /orders page still renders receipts.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "fixes_verified": {
+    "FIX_1_refund_stripe_missing_fails_safe": "PASS — POST /api/admin/disputes/{id}/refund returned 400 'Stripe is not configured'; Mongo confirms dispute status remained 'open', order status not 'refunded', no dispute_refunded buyer notification created. Follow-up close-with-note returned 200 and dispute became 'resolved_closed'.",
+    "FIX_2_gdpr_cascade": "PASS — Registered fresh buyer, added wishlist item, sent message via /api/messages/send with recipient_id (owner user_id), POST /api/account/delete purged user, wishlist entries (db.wishlist), redacted message body to '[message removed — account deleted]', and detached conversations (participant_1/participant_2 set to 'deleted-user'). Also GET /api/account/export as demo returned 200 with conversations & messages keys as arrays.",
+    "FIX_3_schedulers": "PASS — server.py imports low_stock_digest_loop, abandoned_checkout_loop, order_reconciliation_loop and starts all three via asyncio.create_task in startup_event. Backend log shows 'Application started successfully'. POST /api/admin/orders/reconcile as admin returned exactly {settled: [], count: 0}.",
+    "FIX_4_referral_crediting": "PASS — Python-level test: registered user B applied demo's referral code, inserted a fake initiated order, awaited settle_paid_order(order) → returned True; referral_uses.credit_pending flipped to False, demo's referrals.credits_earned +£5.00 exactly, product stock decreased by 1, GET /api/referral/credits shows credits_available ≥ 5.0. Second call to settle_paid_order returned False with NO double credit and NO double stock deduction. Cleanup ran: stock restored, fake order deleted, B removed. Demo's £5 credit is intentionally left in place.",
+    "FIX_5_credit_line_frontend": "PASS — Product page /products/6a46ca8929f8d1b8081c4698 shows [data-testid='referral-credit-line'] with text '− £4.74 referral credit applied at checkout'; buyer-protection-fee-line shows '+ £4.74 Buyer Protection'; Total row shows '£89.99' (= 85 + 4.74 − 4.74 + 4.99).",
+    "FIX_6_admin_dispute_total_price": "PASS — GET /api/admin/disputes?status=open returned the fixture dispute with order_summary.total_price = 89.99 (from order.total_charged).",
+    "REGRESSION_43_tests": "PASS — 43/43 in test_split_regression.py; /orders page for demo still renders the £73.73 Signature Hoodie PAID receipt."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fixes_iter11.py",
+    "/app/backend/tests/test_split_regression.py",
+    "/app/test_reports/pytest/iter11_split.xml",
+    "/app/test_reports/pytest/iter11_fixes.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "settle_paid_order: refresh from Mongo after settlement rather than passing pre-fetched dict prevents stale-fields for downstream ops — settle_paid_order() already uses _id on the in-memory dict, which is fine.",
+    "admin_refund_dispute: correctly raises 502/400 and leaves dispute open on ANY Stripe error path (verified). Also captures recovered payment_intent onto the order doc for legacy orders — nice touch.",
+    "GDPR delete: uses str(brand_doc['_id']), db.wishlist singular, and participant_1/participant_2 as advertised. Good.",
+    "Consider adding an index on referral_uses.user_id (currently likely unique but confirm) — settle_paid_order does a find_one_and_update on that key."
+  ],
+  "updated_files": ["/app/backend/tests/test_fixes_iter11.py (new — 6 fix-specific tests)"],
+  "success_rate": {"backend": "100% (49/49: 43 regression + 6 fix)", "frontend": "100% (credit-line + /orders receipts render)"},
+  "test_credentials": "demo@threadandbone.uk / Demo123! and Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159",
+  "seed_data_creation": "Demo user A retains £5.00 referral credit intentionally (added by FIX-4 test). All other test data (fake orders, disputes, disposable users) is cleaned up by the tests themselves. Seeded order cs_test_receipt_demo_123 untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Two suites live at /app/backend/tests/: test_split_regression.py (43 tests, full route regression) and test_fixes_iter11.py (6 tests, iter11 fixes). Both run in ~10s. Demo account now holds £5 referral credit (leave it — it powers FIX-5 UI demo). Stripe-live checkout paths still cannot be tested without STRIPE_API_KEY; use function-level settle_paid_order calls as done in test_fix4_referral_settle_paid_order.",
+  "rca of the issue": "N/A — all 6 fixes verified working."
+}

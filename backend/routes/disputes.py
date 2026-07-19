@@ -8,8 +8,10 @@ from core import *  # noqa: F401,F403
 # Buyers can open a dispute on an order if they haven't received it. Eligibility
 # rule (objective, easy to verify): order must be at least 14 days past payment
 # AND either no tracking exists OR tracking was added more than 14 days ago.
-# Admin reviews each dispute and either issues a refund (with `reverse_transfer=True`
-# to claw back from the seller's Stripe Connect balance) or closes it with a reason.
+# Admin reviews each dispute and either issues a refund (created on the seller's
+# connected account — direct charges — with `refund_application_fee=True` so the
+# platform returns its fee and the seller isn't out of pocket for our cut) or
+# closes it with a reason.
 
 DISPUTE_ELIGIBILITY_DAYS = int(os.environ.get("DISPUTE_ELIGIBILITY_DAYS", "14"))
 
@@ -137,7 +139,7 @@ async def list_disputes_admin(request: Request, status: Optional[str] = None):
             if order:
                 d["order_summary"] = {
                     "product_name": order.get("product_name"),
-                    "total_price": order.get("total_price"),
+                    "total_price": order.get("total_charged"),
                     "shipping_status": order.get("shipping_status"),
                     "tracking_number": order.get("tracking_number"),
                     "courier": order.get("courier"),
@@ -155,9 +157,10 @@ async def list_disputes_admin(request: Request, status: Optional[str] = None):
 
 @api_router.post("/admin/disputes/{dispute_id}/refund")
 async def admin_refund_dispute(dispute_id: str, payload: DisputeResolution, request: Request):
-    """Issue a full refund for the order and claw back from the seller's Stripe balance.
-    Uses `reverse_transfer=True` so Stripe pulls the funds back from the connected
-    account that received the original payment."""
+    """Issue a full refund for the order. Direct charge: the refund is created ON
+    the seller's connected account (funds come from their balance) with
+    `refund_application_fee=True` so the platform returns its Buyer Protection fee.
+    If Stripe fails, the dispute stays OPEN so the admin can retry."""
     await require_admin(request)
     
     dispute = await db.disputes.find_one({"_id": safe_object_id(dispute_id)})
@@ -170,27 +173,38 @@ async def admin_refund_dispute(dispute_id: str, payload: DisputeResolution, requ
     if not order:
         raise HTTPException(status_code=404, detail="Order missing")
     
-    refund_id = None
-    refund_error = None
-    charge_id = order.get("charge_id") or order.get("payment_intent_id")
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Stripe is not configured — process the refund manually, then close the dispute with a note")
     
-    if charge_id and os.environ.get("STRIPE_API_KEY"):
-        try:
-            stripe_sdk.api_key = os.environ.get("STRIPE_API_KEY")
-            # Use payment_intent if we have it, otherwise charge id
-            refund_kwargs = {"reverse_transfer": True, "refund_application_fee": True}
-            if order.get("payment_intent_id"):
-                refund_kwargs["payment_intent"] = order["payment_intent_id"]
-            else:
-                refund_kwargs["charge"] = charge_id
-            refund = stripe_sdk.Refund.create(**refund_kwargs)
-            refund_id = refund.id
-        except Exception as e:
-            refund_error = str(e)
-            logger.error(f"Stripe refund failed for dispute {dispute_id}: {e}")
-    else:
-        refund_error = "No charge id on order or Stripe not configured — manual refund required"
-        logger.warning(f"Dispute {dispute_id}: {refund_error}")
+    stripe_sdk.api_key = api_key
+    acct_kwargs = {"stripe_account": order["stripe_account_id"]} if order.get("stripe_account_id") else {}
+    payment_intent_id = order.get("payment_intent_id")
+    charge_id = order.get("charge_id")
+    try:
+        # Legacy orders settled before we stored payment_intent_id: recover it from the session
+        if not payment_intent_id and not charge_id and order.get("session_id"):
+            session = await asyncio.to_thread(
+                stripe_sdk.checkout.Session.retrieve, order["session_id"], **acct_kwargs
+            )
+            payment_intent_id = session.payment_intent
+        if not payment_intent_id and not charge_id:
+            raise Exception("No payment reference found on this order")
+        
+        refund_kwargs = {"refund_application_fee": True, **acct_kwargs}
+        if payment_intent_id:
+            refund_kwargs["payment_intent"] = payment_intent_id
+        else:
+            refund_kwargs["charge"] = charge_id
+        refund = await asyncio.to_thread(stripe_sdk.Refund.create, **refund_kwargs)
+        refund_id = refund.id
+        if payment_intent_id and not order.get("payment_intent_id"):
+            await db.orders.update_one({"_id": order["_id"]}, {"$set": {"payment_intent_id": payment_intent_id}})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Stripe refund failed for dispute {dispute_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Stripe refund failed — dispute left open so you can retry: {str(e)}")
     
     now = datetime.now(timezone.utc)
     await db.disputes.update_one(
@@ -202,14 +216,14 @@ async def admin_refund_dispute(dispute_id: str, payload: DisputeResolution, requ
                 "outcome": "refunded",
                 "note": payload.note or "",
                 "stripe_refund_id": refund_id,
-                "stripe_error": refund_error,
+                "stripe_error": None,
             },
         }}
     )
     
     # Mark order as refunded
     await db.orders.update_one(
-        {"_id": safe_object_id(order["_id"]) if isinstance(order.get("_id"), ObjectId) else safe_object_id(dispute["order_id"])},
+        {"_id": order["_id"]},
         {"$set": {"status": "refunded", "refunded_at": now}}
     )
     
@@ -234,9 +248,9 @@ async def admin_refund_dispute(dispute_id: str, payload: DisputeResolution, requ
         )
     
     return {
-        "message": "Refund processed" if refund_id else "Dispute closed but Stripe refund failed — process manually",
+        "message": "Refund processed",
         "stripe_refund_id": refund_id,
-        "stripe_error": refund_error,
+        "stripe_error": None,
     }
 
 

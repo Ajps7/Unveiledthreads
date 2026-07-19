@@ -25,6 +25,7 @@ import routes.messaging  # noqa: E402,F401
 import routes.community  # noqa: E402,F401
 
 from routes.engagement import low_stock_digest_loop, abandoned_checkout_loop  # noqa: E402
+from routes.orders import order_reconciliation_loop  # noqa: E402
 
 # ============ SEED DATA ============
 
@@ -421,6 +422,12 @@ async def startup_event():
     
     # Weekly low-stock digest scheduler (per-brand 7-day guard makes restarts safe)
     asyncio.create_task(low_stock_digest_loop())
+    
+    # Abandoned checkout win-back scheduler (per-order sent flag makes restarts safe)
+    asyncio.create_task(abandoned_checkout_loop())
+    
+    # Paid-order reconciliation sweep (settles orders when the buyer never returned)
+    asyncio.create_task(order_reconciliation_loop())
     
     # Write test credentials file — DEV ONLY. Never write cleartext admin
     # credentials on production, where the file could leak via a mis-mounted volume.
