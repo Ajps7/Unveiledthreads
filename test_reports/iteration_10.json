@@ -1,0 +1,54 @@
+{
+  "summary": "FULL REGRESSION after monolith split (core.py + 18 route modules). 43/43 backend endpoint tests PASS across all 18 modules — no NameErrors, no route-registration regressions. Frontend smoke: home, products, product detail (buyer-protection-fee-line), login, /orders (£73.73 Signature Hoodie PAID) all render cleanly. iter9's /api/account/export KeyError is FIXED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "modules_verified": [
+    "auth: register (name field), login, /auth/me, logout, wrong-password 401",
+    "account: /api/account/export 200 (iter9 KeyError FIXED)",
+    "products: list + filters (category/search/min_price/max_price/sort), /categories, /products/filter-options, /products/{id}, /dead-stock, /dead-stock/my-quota",
+    "brands: /brands, /brands/brand-of-week, /brands/by-slug/analytics-test-brand, /brands/my-application",
+    "applications (admin): /admin/applications?status=pending|approved, /admin/seller-cap",
+    "orders: /orders/my-orders (seeded Signature Hoodie), /orders/status/cs_test_receipt_demo_123 (receipt intact), /orders/brand-orders",
+    "shipping: /shipping/couriers",
+    "payments: /boost/packages, /webhook/stripe (unsigned garbage returns 400, no 500)",
+    "connect: /connect/status, /connect/payouts (connected:false as expected)",
+    "disputes: /admin/disputes?status=open, /admin/stats",
+    "engagement: /notifications, /notifications/unread-count, admin /low-stock-digest/run + /abandoned-checkout/run (both 200)",
+    "reviews: /reviews/product/{id}",
+    "wishlist: full add/list/delete flow",
+    "analytics: /analytics/brand?days=30 and days=7",
+    "referrals: /referral/code, /referral/credits",
+    "messaging: /conversations, /messages/unread-count, clean message via /messages/send, moderation blocks 'paypal outside the app' with 400",
+    "community: /community/posts list + create + comment + like",
+    "uploads: nonexistent file returns 404 (not 500)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_split_regression.py",
+    "/app/test_reports/pytest/iter10_split.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Split looks clean — no NameErrors surfaced across 43 endpoint tests hitting all 18 route modules.",
+    "server.py is now slim; core.py holds shared deps. Recommend adding a route-count assertion test to catch future missing registrations."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_split_regression.py (new — 43 tests across all 18 modules)"
+  ],
+  "success_rate": {
+    "backend": "100% (43/43)",
+    "frontend": "100% (5/5 smoke flows)"
+  },
+  "test_credentials": "Used demo@threadandbone.uk / Demo123! and Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159 from /app/memory/test_credentials.md",
+  "seed_data_creation": "One TEST_ prefixed community post + comment + like created via demo account; one TEST_ registered user (no cleanup — negligible). Wishlist add/delete self-cleans. Seeded order cs_test_receipt_demo_123 untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Full API split-regression suite lives at /app/backend/tests/test_split_regression.py — 43 tests, ~6s runtime. Re-run as regression whenever routes are moved/added. Stripe checkout POST is intentionally not tested (no STRIPE_API_KEY in preview per problem statement).",
+  "rca of the issue": "N/A — no bugs found. Prior iter9 /api/account/export KeyError is now fixed (test_account_export_demo passes 200)."
+}
