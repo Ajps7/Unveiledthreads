@@ -645,6 +645,30 @@ export default function BrandDashboard() {
                     {new Date(payouts.last_payout.arrival_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                 )}
+                {payouts.history?.length > 0 && (
+                  <div className="mt-6" data-testid="payout-history">
+                    <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-2">Payout history</p>
+                    <div className="border border-white/5 divide-y divide-white/5 max-h-64 overflow-y-auto">
+                      {payouts.history.map((p, i) => (
+                        <div key={`${p.arrival_date}-${i}`} className="flex items-center justify-between px-4 py-2.5 text-sm" data-testid={`payout-row-${i}`}>
+                          <span className="text-[#9CA3AF]">
+                            {new Date(p.arrival_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                          <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${
+                            p.status === 'paid'
+                              ? 'text-[#39FF14] border-[#39FF14]/30 bg-[#39FF14]/5'
+                              : p.status === 'failed' || p.status === 'canceled'
+                              ? 'text-red-400 border-red-500/30 bg-red-500/5'
+                              : 'text-yellow-400 border-yellow-500/30 bg-yellow-500/5'
+                          }`}>
+                            {p.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-white font-bold">£{p.amount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

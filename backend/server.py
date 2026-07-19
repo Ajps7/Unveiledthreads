@@ -2416,7 +2416,7 @@ async def connect_payouts(request: Request):
         balance, account, payouts = await asyncio.gather(
             asyncio.to_thread(stripe_sdk.Balance.retrieve, stripe_account=account_id),
             asyncio.to_thread(stripe_sdk.Account.retrieve, account_id),
-            asyncio.to_thread(stripe_sdk.Payout.list, limit=10, stripe_account=account_id),
+            asyncio.to_thread(stripe_sdk.Payout.list, limit=20, stripe_account=account_id),
         )
     except Exception as e:
         logger.error(f"Stripe payouts fetch failed: {e}")
@@ -2431,11 +2431,18 @@ async def connect_payouts(request: Request):
     schedule = ((account.get("settings") or {}).get("payouts") or {}).get("schedule") or {}
     next_payout = None
     last_payout = None
+    history = []
     for p in payouts.get("data", []):
         if next_payout is None and p["status"] in ("pending", "in_transit"):
             next_payout = {"amount": round(p["amount"] / 100, 2), "arrival_date": _iso(p["arrival_date"]), "status": p["status"]}
         if last_payout is None and p["status"] == "paid":
             last_payout = {"amount": round(p["amount"] / 100, 2), "arrival_date": _iso(p["arrival_date"])}
+        history.append({
+            "amount": round(p["amount"] / 100, 2),
+            "currency": p["currency"],
+            "arrival_date": _iso(p["arrival_date"]),
+            "status": p["status"],
+        })
     
     return {
         "connected": True,
@@ -2447,6 +2454,7 @@ async def connect_payouts(request: Request):
         "schedule_delay_days": schedule.get("delay_days"),
         "next_payout": next_payout,
         "last_payout": last_payout,
+        "history": history,
     }
 
 # ============ BUYER PROTECTION / DISPUTES ============
@@ -3043,6 +3051,62 @@ def _order_receipt(order: dict) -> dict:
         "total_charged": order.get("total_charged"),
     }
 
+async def send_order_receipt_email(order: dict):
+    """Branded order confirmation email to the buyer with the full fee breakdown."""
+    buyer_email = order.get("buyer_email")
+    if not buyer_email:
+        return
+    shipping = order.get("shipping_cost") or 0
+    shipping_str = f"£{shipping:.2f}" if shipping > 0 else "Free"
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    row_style = "padding:8px 0;border-bottom:1px solid #27272A;color:#9CA3AF;font-size:14px;"
+    val_style = "padding:8px 0;border-bottom:1px solid #27272A;color:#FFFFFF;font-size:14px;text-align:right;"
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+        <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+        <hr style="border:1px solid #27272A;margin:16px 0;">
+        <h2 style="color:#fff;font-size:20px;">Order confirmed — thank you!</h2>
+        <p style="color:#9CA3AF;line-height:1.6;">
+            You just supported an independent UK brand. <strong style="color:#fff;">{order.get('brand_name', '')}</strong> has been
+            notified and will ship your order soon — track it any time from your Orders page.
+        </p>
+        <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 12px;">Receipt</p>
+            <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{order.get('product_name', '')}</p>
+            <p style="color:#9CA3AF;font-size:12px;margin:0 0 16px;">{order.get('brand_name', '')} &middot; Size {order.get('size', '')}</p>
+            <table style="width:100%;border-collapse:collapse;">
+                <tr><td style="{row_style}">Item</td><td style="{val_style}">£{(order.get('price') or 0):.2f}</td></tr>
+                <tr><td style="{row_style}">Buyer Protection</td><td style="{val_style}">£{(order.get('platform_fee') or 0):.2f}</td></tr>
+                <tr><td style="{row_style}">Shipping</td><td style="{val_style}">{shipping_str}</td></tr>
+                <tr><td style="padding:10px 0;color:#fff;font-weight:bold;font-size:15px;">Total</td>
+                    <td style="padding:10px 0;color:#39FF14;font-weight:bold;font-size:15px;text-align:right;">£{(order.get('total_charged') or 0):.2f}</td></tr>
+            </table>
+        </div>
+        <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
+            Buyer Protection (5% + £0.49, max £6) covers your money-back guarantee, easy returns and hand-vetted
+            independent brands — it's how we keep the platform commission-free for independent brands.
+            {f'<a href="{frontend_url}/orders" style="color:#39FF14;">View your order</a> &middot; <a href="{frontend_url}/buyer-protection" style="color:#39FF14;">Buyer Protection policy</a>' if frontend_url else ''}
+        </p>
+        <hr style="border:1px solid #27272A;margin:24px 0;">
+        <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+    </div>
+    """
+    if not RESEND_API_KEY:
+        logger.info(f"[MOCK RECEIPT EMAIL] To: {buyer_email} | {order.get('product_name')}")
+        return
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [buyer_email],
+        "subject": f"Order confirmed — {order.get('product_name', 'your order')} | Unveiled Threads",
+        "html": html,
+    }
+    try:
+        await asyncio.to_thread(resend.Emails.send, params)
+        await db.orders.update_one({"_id": order["_id"]}, {"$set": {"receipt_email_sent": True}})
+        logger.info(f"[RECEIPT EMAIL SENT] To: {buyer_email} | {order.get('product_name')}")
+    except Exception as e:
+        logger.warning(f"[RECEIPT EMAIL FAILED] To: {buyer_email} | {e}")
+
 @api_router.get("/orders/status/{session_id}")
 async def get_order_status(session_id: str, request: Request):
     user = await get_current_user(request)
@@ -3097,6 +3161,10 @@ async def get_order_status(session_id: str, request: Request):
             message=f"New order for {order['product_name']} (Size: {order['size']}) from {order['buyer_name']}. Payout: £{order['brand_payout']:.2f}",
             metadata={"order_session_id": session_id}
         )
+        
+        # Email the buyer a branded receipt (once per order)
+        if not order.get("receipt_email_sent"):
+            await send_order_receipt_email(order)
     
     return {"status": status_data["status"], "payment_status": status_data["payment_status"], "order": _order_receipt(order)}
 
@@ -3182,6 +3250,111 @@ async def create_notification(user_id: Optional[str], brand_id: Optional[str], n
             logger.warning(f"[EMAIL FAILED] To: {recipient_email} | {title} | Error: {e}")
     else:
         logger.info(f"[MOCK EMAIL] To: user={user_id} brand={brand_id} | {title} | {message}")
+
+# ============ LOW-STOCK WEEKLY DIGEST ============
+
+LOW_STOCK_DIGEST_DAYS = int(os.environ.get("LOW_STOCK_DIGEST_DAYS", "7"))
+
+async def send_low_stock_digests() -> list:
+    """Weekly email nudging brands to restock best sellers that are running low.
+    Returns a report of what was sent (used by the admin trigger endpoint)."""
+    threshold = int(os.environ.get("LOW_STOCK_THRESHOLD", "3"))
+    now = datetime.now(timezone.utc)
+    digest_cutoff = now - timedelta(days=LOW_STOCK_DIGEST_DAYS)
+    sales_window = now - timedelta(days=30)
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    report = []
+    
+    async for brand in db.brands.find({}):
+        last_sent = brand.get("low_stock_digest_sent_at")
+        if last_sent and last_sent.replace(tzinfo=timezone.utc) > digest_cutoff:
+            continue
+        brand_id = str(brand["_id"])
+        low_stock = await db.products.find({
+            "brand_id": brand_id,
+            "is_dead_stock": {"$ne": True},
+            "stock": {"$lte": threshold},
+        }).to_list(100)
+        if not low_stock:
+            continue
+        pids = [str(p["_id"]) for p in low_stock]
+        pipeline = [
+            {"$match": {"brand_id": brand_id, "status": "paid", "product_id": {"$in": pids}, "created_at": {"$gte": sales_window}}},
+            {"$group": {"_id": "$product_id", "count": {"$sum": 1}}},
+        ]
+        sold = {d["_id"]: d["count"] async for d in db.orders.aggregate(pipeline)}
+        # Best sellers only — no point nudging about products nobody buys
+        items = sorted(
+            [p for p in low_stock if sold.get(str(p["_id"]), 0) >= 1],
+            key=lambda p: sold.get(str(p["_id"]), 0),
+            reverse=True,
+        )[:5]
+        if not items:
+            continue
+        user_doc = await db.users.find_one({"_id": ObjectId(brand["user_id"])})
+        recipient = user_doc.get("email") if user_doc else None
+        if not recipient:
+            continue
+        
+        rows = "".join(
+            f"""<tr>
+                <td style="padding:8px 0;border-bottom:1px solid #27272A;color:#fff;font-size:14px;">{p.get('name', 'Unknown')}</td>
+                <td style="padding:8px 0;border-bottom:1px solid #27272A;color:#9CA3AF;font-size:14px;text-align:center;">{sold.get(str(p['_id']), 0)} sold (30d)</td>
+                <td style="padding:8px 0;border-bottom:1px solid #27272A;color:{'#EF4444' if int(p.get('stock', 0) or 0) == 0 else '#FACC15'};font-size:14px;font-weight:bold;text-align:right;">{int(p.get('stock', 0) or 0)} left</td>
+            </tr>"""
+            for p in items
+        )
+        html = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+            <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+            <hr style="border:1px solid #27272A;margin:16px 0;">
+            <h2 style="color:#fff;font-size:20px;">Your best sellers are running low</h2>
+            <p style="color:#9CA3AF;line-height:1.6;">
+                Buyers are still landing on these listings — restock them so you don't miss sales, {brand.get('brand_name', 'there')}.
+            </p>
+            <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
+                <table style="width:100%;border-collapse:collapse;">{rows}</table>
+            </div>
+            {f'<p><a href="{frontend_url}/brand/products" style="color:#000;background:#39FF14;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">RESTOCK NOW</a></p>' if frontend_url else ''}
+            <hr style="border:1px solid #27272A;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:12px;">You get this digest at most once a week, only when best sellers run low.</p>
+        </div>
+        """
+        entry = {"brand": brand.get("brand_name"), "email": recipient, "items": [p.get("name") for p in items], "sent": False}
+        try:
+            if RESEND_API_KEY:
+                params = {
+                    "from": SENDER_EMAIL,
+                    "to": [recipient],
+                    "subject": "Restock alert — your best sellers are running low | Unveiled Threads",
+                    "html": html,
+                }
+                await asyncio.to_thread(resend.Emails.send, params)
+                logger.info(f"[LOW-STOCK DIGEST SENT] To: {recipient} | {brand.get('brand_name')}")
+            else:
+                logger.info(f"[MOCK LOW-STOCK DIGEST] To: {recipient} | {brand.get('brand_name')} | {entry['items']}")
+            entry["sent"] = True
+            await db.brands.update_one({"_id": brand["_id"]}, {"$set": {"low_stock_digest_sent_at": now}})
+        except Exception as e:
+            entry["error"] = str(e)
+            logger.warning(f"[LOW-STOCK DIGEST FAILED] To: {recipient} | {e}")
+        report.append(entry)
+    return report
+
+async def low_stock_digest_loop():
+    while True:
+        try:
+            await send_low_stock_digests()
+        except Exception as e:
+            logger.error(f"Low-stock digest loop error: {e}")
+        await asyncio.sleep(6 * 3600)
+
+@api_router.post("/admin/low-stock-digest/run")
+async def run_low_stock_digest(request: Request):
+    """Admin: manually trigger the weekly low-stock digest run."""
+    await require_admin(request)
+    report = await send_low_stock_digests()
+    return {"processed": len(report), "report": report}
 
 @api_router.get("/notifications")
 async def get_notifications(request: Request):
@@ -4610,6 +4783,9 @@ async def startup_event():
     # Seed data
     await seed_admin()
     await seed_demo_data()
+    
+    # Weekly low-stock digest scheduler (per-brand 7-day guard makes restarts safe)
+    asyncio.create_task(low_stock_digest_loop())
     
     # Write test credentials file — DEV ONLY. Never write cleartext admin
     # credentials on production, where the file could leak via a mis-mounted volume.
