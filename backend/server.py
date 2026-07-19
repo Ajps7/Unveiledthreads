@@ -3597,6 +3597,53 @@ async def send_order_shipped_email(order: dict, courier: str, tracking_number: s
     except Exception as e:
         logger.warning(f"[SHIPPED EMAIL FAILED] To: {buyer_email} | {e}")
 
+async def send_order_delivered_email(order: dict):
+    """Branded 'your order has arrived — leave a review' email to the buyer."""
+    buyer_email = order.get("buyer_email")
+    if not buyer_email:
+        return
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    review_button = (
+        f'<p style="margin:24px 0;"><a href="{frontend_url}/orders" style="color:#000;background:#39FF14;padding:14px 28px;text-decoration:none;font-weight:bold;display:inline-block;">LEAVE A REVIEW</a></p>'
+        if frontend_url else ""
+    )
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+        <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+        <hr style="border:1px solid #27272A;margin:16px 0;">
+        <h2 style="color:#fff;font-size:20px;">Your order has arrived!</h2>
+        <p style="color:#9CA3AF;line-height:1.6;">
+            Your <strong style="color:#fff;">{order.get('product_name', '')}</strong> (Size {order.get('size', '')}) from
+            <strong style="color:#fff;">{order.get('brand_name', '')}</strong> has been delivered. We hope you love it.
+        </p>
+        <p style="color:#9CA3AF;line-height:1.6;">
+            Reviews are everything for independent brands — a quick rating helps
+            <strong style="color:#fff;">{order.get('brand_name', '')}</strong> get discovered by more buyers like you.
+        </p>
+        {review_button}
+        <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
+            Something not right? Message the brand from your Orders page{f' or read our <a href="{frontend_url}/buyer-protection" style="color:#39FF14;">Buyer Protection policy</a>' if frontend_url else ''}.
+        </p>
+        <hr style="border:1px solid #27272A;margin:24px 0;">
+        <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+    </div>
+    """
+    if not RESEND_API_KEY:
+        logger.info(f"[MOCK DELIVERED EMAIL] To: {buyer_email} | {order.get('product_name')}")
+        return
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [buyer_email],
+        "subject": f"Delivered — how was your {order.get('product_name', 'order')}? | Unveiled Threads",
+        "html": html,
+    }
+    try:
+        await asyncio.to_thread(resend.Emails.send, params)
+        await db.orders.update_one({"_id": order["_id"]}, {"$set": {"delivered_email_sent": True}})
+        logger.info(f"[DELIVERED EMAIL SENT] To: {buyer_email} | {order.get('product_name')}")
+    except Exception as e:
+        logger.warning(f"[DELIVERED EMAIL FAILED] To: {buyer_email} | {e}")
+
 @api_router.get("/shipping/couriers")
 async def get_couriers():
     return UK_COURIERS
@@ -3692,15 +3739,21 @@ async def update_shipping_status(order_id: str, status_data: UpdateShippingStatu
         {"$set": update_fields, "$push": {"shipping_updates": shipping_update}}
     )
     
-    # Notify buyer of status change
+    # Notify buyer of status change (in-app only for delivered — branded email below)
+    is_delivered = status_data.status == "delivered"
     await create_notification(
         user_id=order["buyer_id"],
         brand_id=None,
         notification_type="shipping_update",
         title=f"Shipping Update: {status_messages.get(status_data.status, status_data.status)}",
         message=f"Your order for {order['product_name']} — {status_messages.get(status_data.status, '')}",
-        metadata={"order_id": order_id, "status": status_data.status}
+        metadata={"order_id": order_id, "status": status_data.status},
+        send_email=not is_delivered
     )
+    
+    # Branded "arrived — leave a review" email (once per order)
+    if is_delivered and not order.get("delivered_email_sent"):
+        await send_order_delivered_email(order)
     
     return {"message": f"Shipping status updated to {status_data.status}"}
 
