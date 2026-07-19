@@ -13,6 +13,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
+from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
@@ -3197,7 +3198,7 @@ async def get_brand_orders(request: Request):
 
 # ============ NOTIFICATIONS ============
 
-async def create_notification(user_id: Optional[str], brand_id: Optional[str], notification_type: str, title: str, message: str, metadata: Optional[dict] = None):
+async def create_notification(user_id: Optional[str], brand_id: Optional[str], notification_type: str, title: str, message: str, metadata: Optional[dict] = None, send_email: bool = True):
     """Create a notification and send email via Resend (falls back to mock if no API key)"""
     notif_doc = {
         "user_id": user_id,
@@ -3225,7 +3226,7 @@ async def create_notification(user_id: Optional[str], brand_id: Optional[str], n
             if user_doc:
                 recipient_email = user_doc.get("email")
     
-    if RESEND_API_KEY and recipient_email:
+    if RESEND_API_KEY and recipient_email and send_email:
         try:
             html_content = f"""
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
@@ -3529,6 +3530,73 @@ async def get_brand_reviews(brand_id: str):
 
 # ============ SHIPPING / TRACKING ============
 
+COURIER_TRACKING_URLS = {
+    "royal mail": "https://www.royalmail.com/track-your-item#/tracking-results/{n}",
+    "evri": "https://www.evri.com/track/parcel/{n}",
+    "hermes": "https://www.evri.com/track/parcel/{n}",
+    "hermes uk": "https://www.evri.com/track/parcel/{n}",
+    "dpd": "https://track.dpd.co.uk/parcels/{n}",
+    "dpd uk": "https://track.dpd.co.uk/parcels/{n}",
+    "yodel": "https://www.yodel.co.uk/track/{n}",
+    "ups": "https://www.ups.com/track?tracknum={n}",
+    "fedex": "https://www.fedex.com/fedextrack/?tracknumbers={n}",
+}
+
+def get_tracking_url(courier: str, tracking_number: str) -> Optional[str]:
+    if not courier or not tracking_number:
+        return None
+    template = COURIER_TRACKING_URLS.get(courier.strip().lower())
+    return template.format(n=quote(tracking_number)) if template else None
+
+async def send_order_shipped_email(order: dict, courier: str, tracking_number: str):
+    """Branded shipped notification to the buyer with a clickable tracking link."""
+    buyer_email = order.get("buyer_email")
+    if not buyer_email:
+        return
+    tracking_url = get_tracking_url(courier, tracking_number)
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    track_button = (
+        f'<p style="margin:24px 0;"><a href="{tracking_url}" style="color:#000;background:#39FF14;padding:14px 28px;text-decoration:none;font-weight:bold;display:inline-block;">TRACK YOUR PARCEL</a></p>'
+        if tracking_url else ""
+    )
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+        <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+        <hr style="border:1px solid #27272A;margin:16px 0;">
+        <h2 style="color:#fff;font-size:20px;">Your order is on its way!</h2>
+        <p style="color:#9CA3AF;line-height:1.6;">
+            <strong style="color:#fff;">{order.get('brand_name', '')}</strong> has shipped your
+            <strong style="color:#fff;">{order.get('product_name', '')}</strong> (Size {order.get('size', '')}) via
+            <strong style="color:#fff;">{courier}</strong>.
+        </p>
+        <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 8px;">Tracking number</p>
+            <p style="color:#fff;font-family:monospace;font-size:16px;margin:0;">{tracking_number}</p>
+            <p style="color:#9CA3AF;font-size:12px;margin:8px 0 0;">via {courier}</p>
+        </div>
+        {track_button}
+        <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
+            {f'You can also follow the delivery timeline on your <a href="{frontend_url}/orders" style="color:#39FF14;">Orders page</a>. ' if frontend_url else ''}Remember, every purchase is covered by Unveiled Threads Buyer Protection.
+        </p>
+        <hr style="border:1px solid #27272A;margin:24px 0;">
+        <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+    </div>
+    """
+    if not RESEND_API_KEY:
+        logger.info(f"[MOCK SHIPPED EMAIL] To: {buyer_email} | {order.get('product_name')} via {courier}")
+        return
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [buyer_email],
+        "subject": f"Shipped — {order.get('product_name', 'your order')} is on its way | Unveiled Threads",
+        "html": html,
+    }
+    try:
+        await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"[SHIPPED EMAIL SENT] To: {buyer_email} | {order.get('product_name')} via {courier}")
+    except Exception as e:
+        logger.warning(f"[SHIPPED EMAIL FAILED] To: {buyer_email} | {e}")
+
 @api_router.get("/shipping/couriers")
 async def get_couriers():
     return UK_COURIERS
@@ -3568,15 +3636,19 @@ async def ship_order(order_id: str, ship_data: ShipOrderRequest, request: Reques
         }
     )
     
-    # Notify buyer
+    # Notify buyer (in-app only — the branded shipped email below replaces the generic one)
     await create_notification(
         user_id=order["buyer_id"],
         brand_id=None,
         notification_type="order_shipped",
         title="Your Order Has Been Shipped!",
         message=f"Your order for {order['product_name']} has been shipped via {ship_data.courier}. Tracking: {ship_data.tracking_number}",
-        metadata={"order_id": order_id, "tracking_number": ship_data.tracking_number, "courier": ship_data.courier}
+        metadata={"order_id": order_id, "tracking_number": ship_data.tracking_number, "courier": ship_data.courier},
+        send_email=False
     )
+    
+    # Branded shipped email with a clickable tracking link
+    await send_order_shipped_email(order, ship_data.courier, ship_data.tracking_number)
     
     return {"message": "Order marked as shipped"}
 
