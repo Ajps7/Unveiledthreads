@@ -306,12 +306,14 @@ def test_analytics_brand_7(demo):
 # ---------- REFERRALS ----------
 def test_referral_code(demo):
     r = demo.get(f"{BASE}/api/referral/code", timeout=15)
-    assert r.status_code == 200
+    # 200 when the programme is live, 403 "coming soon" while gated behind REFERRALS_ENABLED
+    assert r.status_code in (200, 403)
 
 
 def test_referral_credits(demo):
     r = demo.get(f"{BASE}/api/referral/credits", timeout=15)
     assert r.status_code == 200
+    assert "credits_available" in r.json()
 
 
 # ---------- MESSAGING ----------

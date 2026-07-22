@@ -348,6 +348,9 @@ class MessageSend(BaseModel):
     content: str
     order_id: Optional[str] = None
 
+# Referral programme feature flag — keep OFF until funding secured (set REFERRALS_ENABLED=true to launch)
+REFERRALS_ENABLED = os.environ.get("REFERRALS_ENABLED", "false").lower() == "true"
+
 REFERRAL_CREDIT = 5.0  # £5 credit
 
 # Forbidden content patterns for message surveillance

@@ -35,13 +35,14 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     shipping_cost = product.get("shipping_cost", 0)
     platform_fee = calculate_buyer_fee(product_price)
     
-    # Auto-apply available referral credit against the Buyer Protection fee
+    # Auto-apply available referral credit against the Buyer Protection fee (only when programme is live)
     credit_applied = 0.0
-    referral = await db.referrals.find_one({"user_id": user["id"]})
-    if referral:
-        available = round(referral.get("credits_earned", 0) - referral.get("credits_used", 0), 2)
-        if available > 0:
-            credit_applied = round(min(available, platform_fee), 2)
+    if REFERRALS_ENABLED:
+        referral = await db.referrals.find_one({"user_id": user["id"]})
+        if referral:
+            available = round(referral.get("credits_earned", 0) - referral.get("credits_used", 0), 2)
+            if available > 0:
+                credit_applied = round(min(available, platform_fee), 2)
     fee_charged = round(platform_fee - credit_applied, 2)
     total_price = round(product_price + fee_charged + shipping_cost, 2)
     
@@ -272,11 +273,14 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
             metadata={"order_id": str(order["_id"]), "product_id": order["product_id"]},
         )
     
-    # Referral: credit the referrer on the buyer's first paid order (atomic flag flip)
-    ref_use = await db.referral_uses.find_one_and_update(
-        {"user_id": order["buyer_id"], "credit_pending": True},
-        {"$set": {"credit_pending": False, "credited_at": now}},
-    )
+    # Referral: credit the referrer on the buyer's first paid order (atomic flag flip).
+    # Gated behind REFERRALS_ENABLED — no credits accrue until the programme launches.
+    ref_use = None
+    if REFERRALS_ENABLED:
+        ref_use = await db.referral_uses.find_one_and_update(
+            {"user_id": order["buyer_id"], "credit_pending": True},
+            {"$set": {"credit_pending": False, "credited_at": now}},
+        )
     if ref_use:
         await db.referrals.update_one(
             {"user_id": ref_use["referrer_id"]},

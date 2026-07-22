@@ -259,6 +259,9 @@ def test_fix3_scheduler_symbols_import():
 def test_fix4_referral_settle_paid_order():
     """End-to-end python-level test of settle_paid_order.
     A = demo (referrer), B = fresh registered user (referred buyer)."""
+    import core as _core
+    if not _core.REFERRALS_ENABLED:
+        pytest.skip("Referral programme gated behind REFERRALS_ENABLED (coming soon until funding)")
     from routes.orders import settle_paid_order
 
     async def _run():

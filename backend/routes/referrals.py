@@ -7,6 +7,8 @@ from core import *  # noqa: F401,F403
 
 @api_router.get("/referral/code")
 async def get_referral_code(request: Request):
+    if not REFERRALS_ENABLED:
+        raise HTTPException(status_code=403, detail="The referral programme is coming soon")
     user = await get_current_user(request)
     
     # Check if user already has a referral code
@@ -28,6 +30,8 @@ async def get_referral_code(request: Request):
 
 @api_router.post("/referral/apply")
 async def apply_referral_code(payload: ReferralApplyRequest, request: Request):
+    if not REFERRALS_ENABLED:
+        raise HTTPException(status_code=403, detail="The referral programme is coming soon")
     user = await get_current_user(request)
     code = payload.code.strip()
     
@@ -59,6 +63,10 @@ async def apply_referral_code(payload: ReferralApplyRequest, request: Request):
 
 @api_router.get("/referral/credits")
 async def get_referral_credits(request: Request):
+    if not REFERRALS_ENABLED:
+        # Graceful zero so checkout/product pages never show or apply credit while gated
+        await get_current_user(request)
+        return {"credits_earned": 0, "credits_used": 0, "credits_available": 0}
     user = await get_current_user(request)
     
     referral = await db.referrals.find_one({"user_id": user["id"]})
@@ -74,6 +82,8 @@ async def get_referral_credits(request: Request):
 
 @api_router.get("/referral/share-links")
 async def get_share_links(request: Request):
+    if not REFERRALS_ENABLED:
+        raise HTTPException(status_code=403, detail="The referral programme is coming soon")
     user = await get_current_user(request)
     
     referral = await db.referrals.find_one({"user_id": user["id"]})
