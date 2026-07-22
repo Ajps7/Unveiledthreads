@@ -27,10 +27,9 @@ async def get_referral_code(request: Request):
     return {"code": code, "credit_value": REFERRAL_CREDIT}
 
 @api_router.post("/referral/apply")
-async def apply_referral_code(request: Request):
+async def apply_referral_code(payload: ReferralApplyRequest, request: Request):
     user = await get_current_user(request)
-    data = await request.json()
-    code = data.get("code", "").strip()
+    code = payload.code.strip()
     
     if not code:
         raise HTTPException(status_code=400, detail="Referral code required")

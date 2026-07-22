@@ -164,7 +164,7 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request):
                 <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
                 <hr style="border:1px solid #27272A;margin:16px 0;">
                 <h2 style="color:#fff;font-size:20px;">Reset your password</h2>
-                <p style="color:#9CA3AF;line-height:1.6;">We received a request to reset the password for the account linked to <strong style="color:#fff;">{email}</strong>. Click the button below to set a new password. This link expires in 1 hour.</p>
+                <p style="color:#9CA3AF;line-height:1.6;">We received a request to reset the password for the account linked to <strong style="color:#fff;">{esc(email)}</strong>. Click the button below to set a new password. This link expires in 1 hour.</p>
                 <p style="margin:32px 0;">
                     <a href="{reset_url}" style="display:inline-block;background:#39FF14;color:#000;padding:14px 28px;text-decoration:none;font-weight:bold;letter-spacing:1px;text-transform:uppercase;font-size:14px;">Reset Password</a>
                 </p>
@@ -195,8 +195,8 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request):
 @limiter.limit("10/hour")
 async def reset_password(payload: ResetPasswordRequest, request: Request):
     """Consume a reset token and set the new password."""
-    if len(payload.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if not (8 <= len(payload.new_password) <= 128):
+        raise HTTPException(status_code=400, detail="Password must be 8–128 characters")
     
     token_hash = _hash_reset_token(payload.token)
     token_doc = await db.password_reset_tokens.find_one({"token_hash": token_hash})

@@ -1,0 +1,32 @@
+{
+  "summary": "Independent verification of 4 iter12 security/correctness fixes. Wrote /app/backend/tests/test_fixes_iter12.py (23 tests) covering FIX 1 product/referral/brand validation, FIX 2 oversell guard, FIX 3 password rules, FIX 4 email HTML escaping. All 23 iter12 tests PASS. Existing regression suites (test_split_regression.py + test_fixes_iter11.py) also PASS 49/49. Normal product create+update+delete lifecycle by testbrand verified working end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "fixes_verified": {
+    "FIX_1_input_validation": "PASS — POST /api/products: price=-5 → 422, price='abc' → 422, stock=-1 → 422, gender='alien' → 422, name<2 → 422, description<10 → 422, sizes=[] → 422, images=[] → 422, condition='bogus' → 422. Valid payload → 200. PUT /api/products/{id}: {price:-10} → 422, {price:'abc'} → 422, owner {price:49.99} → 200 (persistence verified via GET), different-brand PUT → 403. POST /api/referral/apply {'code':'ab'} → 422. PUT /api/brands/profile description 3001 chars → 422.",
+    "FIX_2_oversell_guard": "PASS — Function-level test on settle_paid_order: inserted throwaway product with stock=1 + two fake initiated orders. First settle → status='paid', stock=0, no oversold flag. Second settle → returned True, order flagged oversold=True, product stock stayed at 0 (never negative), brand notification of type 'oversold_order' with correct metadata.order_id created. GET /api/admin/stats returns oversold_orders as an int and >=1 during the test. All throwaway products/orders/notifications cleaned up in teardown.",
+    "FIX_3_password_rules": "PASS — POST /api/auth/register password='abc' → 422. Fresh email + password='longenough1' → 200. Inserted valid reset token via routes.auth._hash_reset_token() with 1h expiry. POST /api/auth/reset-password new_password='short' → 400 with detail matching 'Password must be 8' + '128 characters' (accepts both en-dash and hyphen). new_password='newvalidpass1' → 200. Test user + tokens cleaned up.",
+    "FIX_4_html_escaping": "PASS — Monkey-patched resend.Emails.send to capture params (no real emails sent). (a) send_order_receipt_email with product_name '<b>Test</b><img src=x onerror=alert(1)>' and brand_name '<script>evil</script>' → captured HTML contained '&lt;b&gt;Test&lt;/b&gt;' and '&lt;script&gt;evil&lt;/script&gt;', and did NOT contain raw '<img src=x' or '<script>evil'. (b) send_order_shipped_email with malicious product_name + courier '<svg onload=alert(1)>' + tracking 'TN123<script>' → all payloads escaped. (c) create_notification with title '<b>Alert</b>' + message '<script>alert(1)</script>' → escaped in captured HTML. (d) Normal strings 'Signature Hoodie' / 'Thread & Bone' / 'Size L' pass through unchanged (with '&' → '&amp;' as expected).",
+    "REGRESSION_49_tests": "PASS — 43/43 test_split_regression.py + 6/6 test_fixes_iter11.py green in 13.22s. Product lifecycle (create → update → delete) by testbrand also green in TestFix1ProductValidation::test_full_lifecycle_delete."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fixes_iter12.py",
+    "/app/test_reports/pytest/iter12_fixes.xml",
+    "/app/test_reports/pytest/iter12_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Rate limiting on /api/auth/login (10/min) causes 429s if the full 3-suite run is executed in one shot (>10 logins per minute). Each suite passes independently; consider caching session cookies per email at module scope to reduce login calls, or bump the limiter for tests. Not a product bug.",
+    "settle_paid_order: oversell guard is correctly placed AFTER the atomic order-claim step, so the buyer's payment is honoured (never left in 'initiated') even when stock is exhausted — good design, matches the spec.",
+    "ProductUpdate: uses exclude_unset which is required to preserve unspecified fields — verified via price-only PUT (name/description untouched).",
+    "esc() in core: uses html.escape(str(value)) — will escape None as empty string, which prevents literal 'None' bleeding into emails. Nice defensive default.",
+    "Reset-password error uses the en-dash character (8–128), which is fine but slightly harder to grep for; test tolerates both forms."
+  ],
+  "updated_files": ["/app/backend/tests/test_fixes_iter12.py (new — 23 tests for iter12 fixes)"],
+  "success_rate": {"backend": "100% (49 iter11 regression + 23 iter12 fixes = 72/72 across the two-suite split)", "frontend": "N/A (backend-only per request)"},
+  "test_credentials": "testbrand@example.com / TestBrand123! (brand), demo@threadandbone.uk / Demo123! (brand+buyer), Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159 (admin)",
+  "seed_data_creation": "None persisted. All throwaway products, orders, notifications, users, and reset tokens are cleaned up in test teardowns. Seeded order cs_test_receipt_demo_123 untouched; demo's £5 referral credit intentionally preserved.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Three regression suites now live at /app/backend/tests/: test_split_regression.py (43), test_fixes_iter11.py (6), test_fixes_iter12.py (23). Run them one at a time (or with a >6s gap between login-heavy files) to avoid the 10/min /api/auth/login rate-limit. For fix-4 style email escaping tests, always monkeypatch resend.Emails.send AND set the module-local RESEND_API_KEY to a truthy value so the escape path executes."
+}

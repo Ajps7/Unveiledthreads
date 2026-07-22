@@ -121,19 +121,14 @@ async def get_brand(brand_id: str):
     return brand
 
 @api_router.put("/brands/profile")
-async def update_brand_profile(request: Request):
+async def update_brand_profile(payload: BrandProfileUpdate, request: Request):
     user = await require_brand(request)
-    data = await request.json()
     
     brand = await db.brands.find_one({"user_id": user["id"]})
     if not brand:
         raise HTTPException(status_code=404, detail="Brand profile not found")
     
-    update_fields = {}
-    allowed_fields = ["description", "instagram_handle", "website", "logo_url", "banner_url"]
-    for field in allowed_fields:
-        if field in data:
-            update_fields[field] = data[field]
+    update_fields = payload.model_dump(exclude_unset=True)
     
     if update_fields:
         await db.brands.update_one(

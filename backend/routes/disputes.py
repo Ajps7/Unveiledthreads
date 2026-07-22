@@ -303,6 +303,7 @@ async def get_admin_stats(request: Request):
     pending_applications = await db.brand_applications.count_documents({"status": "pending"})
     boosted_brands = await db.brands.count_documents({"is_boosted": True})
     total_orders = await db.orders.count_documents({})
+    oversold_orders = await db.orders.count_documents({"oversold": True})
     total_revenue = 0
     pipeline = [{"$match": {"status": "paid"}}, {"$group": {"_id": None, "total": {"$sum": "$platform_fee"}}}]
     async for doc in db.orders.aggregate(pipeline):
@@ -317,6 +318,7 @@ async def get_admin_stats(request: Request):
         "pending_applications": pending_applications,
         "boosted_brands": boosted_brands,
         "total_orders": total_orders,
+        "oversold_orders": oversold_orders,
         "total_revenue": round(total_revenue, 2)
     }
 

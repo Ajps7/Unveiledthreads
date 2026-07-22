@@ -10,10 +10,11 @@ import asyncio
 import requests as http_requests
 import resend
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
 import json
+import html
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 import bcrypt
@@ -39,6 +40,11 @@ def _client_ip(request):
 
 # Rate limiter (uses real client IP via X-Forwarded-For). Routes opt-in via @limiter.limit.
 limiter = Limiter(key_func=_client_ip, default_limits=["120/minute"])
+
+def esc(value) -> str:
+    """HTML-escape user-controlled strings before interpolating into email HTML."""
+    return html.escape(str(value)) if value is not None else ""
+
 
 def get_stripe_session_status(session_id: str, api_key: str, stripe_account: Optional[str] = None):
     """Direct Stripe SDK call to avoid emergentintegrations Pydantic validation bug on metadata field.
@@ -122,8 +128,8 @@ logger = logging.getLogger(__name__)
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(min_length=1, max_length=100)
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -156,20 +162,80 @@ class BrandApplicationResponse(BaseModel):
     status: str
     created_at: datetime
 
+GENDERS = ["unisex", "mens", "womens"]
+CONDITIONS = ["new", "like_new", "used"]
+
+
 class ProductCreate(BaseModel):
-    name: str
-    description: str
-    price: float
-    category: str
-    sizes: List[str]
-    images: List[str]
-    stock: int = 0
-    shipping_cost: float = 3.99
-    colour: Optional[str] = None
-    material: Optional[str] = None
+    name: str = Field(min_length=2, max_length=120)
+    description: str = Field(min_length=10, max_length=3000)
+    price: float = Field(gt=0, le=10000)
+    category: str = Field(min_length=2, max_length=50)
+    sizes: List[str] = Field(min_length=1, max_length=15)
+    images: List[str] = Field(min_length=1, max_length=10)
+    stock: int = Field(default=0, ge=0, le=100000)
+    shipping_cost: float = Field(default=3.99, ge=0, le=100)
+    colour: Optional[str] = Field(default=None, max_length=50)
+    material: Optional[str] = Field(default=None, max_length=50)
     gender: str = "unisex"
     condition: str = "new"
-    fit: Optional[str] = None
+    fit: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("gender")
+    @classmethod
+    def _valid_gender(cls, v):
+        if v not in GENDERS:
+            raise ValueError(f"gender must be one of {GENDERS}")
+        return v
+
+    @field_validator("condition")
+    @classmethod
+    def _valid_condition(cls, v):
+        if v not in CONDITIONS:
+            raise ValueError(f"condition must be one of {CONDITIONS}")
+        return v
+
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    description: Optional[str] = Field(default=None, min_length=10, max_length=3000)
+    price: Optional[float] = Field(default=None, gt=0, le=10000)
+    category: Optional[str] = Field(default=None, min_length=2, max_length=50)
+    sizes: Optional[List[str]] = Field(default=None, min_length=1, max_length=15)
+    images: Optional[List[str]] = Field(default=None, min_length=1, max_length=10)
+    stock: Optional[int] = Field(default=None, ge=0, le=100000)
+    shipping_cost: Optional[float] = Field(default=None, ge=0, le=100)
+    colour: Optional[str] = Field(default=None, max_length=50)
+    material: Optional[str] = Field(default=None, max_length=50)
+    gender: Optional[str] = None
+    condition: Optional[str] = None
+    fit: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("gender")
+    @classmethod
+    def _valid_gender(cls, v):
+        if v is not None and v not in GENDERS:
+            raise ValueError(f"gender must be one of {GENDERS}")
+        return v
+
+    @field_validator("condition")
+    @classmethod
+    def _valid_condition(cls, v):
+        if v is not None and v not in CONDITIONS:
+            raise ValueError(f"condition must be one of {CONDITIONS}")
+        return v
+
+
+class ReferralApplyRequest(BaseModel):
+    code: str = Field(min_length=3, max_length=40)
+
+
+class BrandProfileUpdate(BaseModel):
+    description: Optional[str] = Field(default=None, max_length=3000)
+    instagram_handle: Optional[str] = Field(default=None, max_length=100)
+    website: Optional[str] = Field(default=None, max_length=200)
+    logo_url: Optional[str] = Field(default=None, max_length=500)
+    banner_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class DeadStockToggle(BaseModel):
@@ -198,8 +264,6 @@ class DisputeResolution(BaseModel):
 
 COLOURS = ["Black", "White", "Grey", "Navy", "Green", "Olive", "Brown", "Beige", "Cream", "Red", "Blue", "Purple", "Orange", "Yellow", "Pink", "Multi"]
 MATERIALS = ["Cotton", "Organic Cotton", "Polyester", "Nylon", "Fleece", "Denim", "Leather", "Wool", "Linen", "Canvas", "Corduroy", "Mesh", "Mixed"]
-GENDERS = ["unisex", "mens", "womens"]
-CONDITIONS = ["new", "like_new", "used"]
 FITS = ["Oversized", "Regular", "Slim", "Relaxed", "Cropped", "Boxy"]
 SORT_OPTIONS = ["latest", "price_low", "price_high", "popular"]
 
@@ -732,8 +796,8 @@ async def create_notification(user_id: Optional[str], brand_id: Optional[str], n
             <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
                 <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
                 <hr style="border:1px solid #27272A;margin:16px 0;">
-                <h2 style="color:#fff;font-size:20px;">{title}</h2>
-                <p style="color:#9CA3AF;line-height:1.6;">{message}</p>
+                <h2 style="color:#fff;font-size:20px;">{esc(title)}</h2>
+                <p style="color:#9CA3AF;line-height:1.6;">{esc(message)}</p>
                 <hr style="border:1px solid #27272A;margin:24px 0;">
                 <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
             </div>

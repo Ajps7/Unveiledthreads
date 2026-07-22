@@ -50,7 +50,7 @@ async def send_low_stock_digests() -> list:
         
         rows = "".join(
             f"""<tr>
-                <td style="padding:8px 0;border-bottom:1px solid #27272A;color:#fff;font-size:14px;">{p.get('name', 'Unknown')}</td>
+                <td style="padding:8px 0;border-bottom:1px solid #27272A;color:#fff;font-size:14px;">{esc(p.get('name', 'Unknown'))}</td>
                 <td style="padding:8px 0;border-bottom:1px solid #27272A;color:#9CA3AF;font-size:14px;text-align:center;">{sold.get(str(p['_id']), 0)} sold (30d)</td>
                 <td style="padding:8px 0;border-bottom:1px solid #27272A;color:{'#EF4444' if int(p.get('stock', 0) or 0) == 0 else '#FACC15'};font-size:14px;font-weight:bold;text-align:right;">{int(p.get('stock', 0) or 0)} left</td>
             </tr>"""
@@ -62,7 +62,7 @@ async def send_low_stock_digests() -> list:
             <hr style="border:1px solid #27272A;margin:16px 0;">
             <h2 style="color:#fff;font-size:20px;">Your best sellers are running low</h2>
             <p style="color:#9CA3AF;line-height:1.6;">
-                Buyers are still landing on these listings — restock them so you don't miss sales, {brand.get('brand_name', 'there')}.
+                Buyers are still landing on these listings — restock them so you don't miss sales, {esc(brand.get('brand_name', 'there'))}.
             </p>
             <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
                 <table style="width:100%;border-collapse:collapse;">{rows}</table>
@@ -159,13 +159,13 @@ async def send_abandoned_checkout_emails() -> list:
             <hr style="border:1px solid #27272A;margin:16px 0;">
             <h2 style="color:#fff;font-size:20px;">You left something behind</h2>
             <p style="color:#9CA3AF;line-height:1.6;">
-                Your <strong style="color:#fff;">{order.get('product_name', '')}</strong> (Size {order.get('size', '')}) from
-                <strong style="color:#fff;">{order.get('brand_name', '')}</strong> is still waiting in checkout.
+                Your <strong style="color:#fff;">{esc(order.get('product_name', ''))}</strong> (Size {esc(order.get('size', ''))}) from
+                <strong style="color:#fff;">{esc(order.get('brand_name', ''))}</strong> is still waiting in checkout.
             </p>
             <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
                 {scarcity}
-                <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{order.get('product_name', '')}</p>
-                <p style="color:#9CA3AF;font-size:12px;margin:0 0 8px;">{order.get('brand_name', '')} &middot; Size {order.get('size', '')}</p>
+                <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{esc(order.get('product_name', ''))}</p>
+                <p style="color:#9CA3AF;font-size:12px;margin:0 0 8px;">{esc(order.get('brand_name', ''))} &middot; Size {esc(order.get('size', ''))}</p>
                 <p style="color:#C0C0C0;font-size:18px;font-weight:bold;margin:0;">£{(order.get('price') or 0):.2f}</p>
             </div>
             {cta}

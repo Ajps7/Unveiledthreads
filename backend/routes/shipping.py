@@ -40,14 +40,14 @@ async def send_order_shipped_email(order: dict, courier: str, tracking_number: s
         <hr style="border:1px solid #27272A;margin:16px 0;">
         <h2 style="color:#fff;font-size:20px;">Your order is on its way!</h2>
         <p style="color:#9CA3AF;line-height:1.6;">
-            <strong style="color:#fff;">{order.get('brand_name', '')}</strong> has shipped your
-            <strong style="color:#fff;">{order.get('product_name', '')}</strong> (Size {order.get('size', '')}) via
-            <strong style="color:#fff;">{courier}</strong>.
+            <strong style="color:#fff;">{esc(order.get('brand_name', ''))}</strong> has shipped your
+            <strong style="color:#fff;">{esc(order.get('product_name', ''))}</strong> (Size {esc(order.get('size', ''))}) via
+            <strong style="color:#fff;">{esc(courier)}</strong>.
         </p>
         <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
             <p style="color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 8px;">Tracking number</p>
-            <p style="color:#fff;font-family:monospace;font-size:16px;margin:0;">{tracking_number}</p>
-            <p style="color:#9CA3AF;font-size:12px;margin:8px 0 0;">via {courier}</p>
+            <p style="color:#fff;font-family:monospace;font-size:16px;margin:0;">{esc(tracking_number)}</p>
+            <p style="color:#9CA3AF;font-size:12px;margin:8px 0 0;">via {esc(courier)}</p>
         </div>
         {track_button}
         <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
@@ -88,12 +88,12 @@ async def send_order_delivered_email(order: dict):
         <hr style="border:1px solid #27272A;margin:16px 0;">
         <h2 style="color:#fff;font-size:20px;">Your order has arrived!</h2>
         <p style="color:#9CA3AF;line-height:1.6;">
-            Your <strong style="color:#fff;">{order.get('product_name', '')}</strong> (Size {order.get('size', '')}) from
-            <strong style="color:#fff;">{order.get('brand_name', '')}</strong> has been delivered. We hope you love it.
+            Your <strong style="color:#fff;">{esc(order.get('product_name', ''))}</strong> (Size {esc(order.get('size', ''))}) from
+            <strong style="color:#fff;">{esc(order.get('brand_name', ''))}</strong> has been delivered. We hope you love it.
         </p>
         <p style="color:#9CA3AF;line-height:1.6;">
             Reviews are everything for independent brands — a quick rating helps
-            <strong style="color:#fff;">{order.get('brand_name', '')}</strong> get discovered by more buyers like you.
+            <strong style="color:#fff;">{esc(order.get('brand_name', ''))}</strong> get discovered by more buyers like you.
         </p>
         {review_button}
         <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">

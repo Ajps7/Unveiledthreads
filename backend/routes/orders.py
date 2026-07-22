@@ -194,13 +194,13 @@ async def send_order_receipt_email(order: dict):
         <hr style="border:1px solid #27272A;margin:16px 0;">
         <h2 style="color:#fff;font-size:20px;">Order confirmed — thank you!</h2>
         <p style="color:#9CA3AF;line-height:1.6;">
-            You just supported an independent UK brand. <strong style="color:#fff;">{order.get('brand_name', '')}</strong> has been
+            You just supported an independent UK brand. <strong style="color:#fff;">{esc(order.get('brand_name', ''))}</strong> has been
             notified and will ship your order soon — track it any time from your Orders page.
         </p>
         <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
             <p style="color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 12px;">Receipt</p>
-            <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{order.get('product_name', '')}</p>
-            <p style="color:#9CA3AF;font-size:12px;margin:0 0 16px;">{order.get('brand_name', '')} &middot; Size {order.get('size', '')}</p>
+            <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{esc(order.get('product_name', ''))}</p>
+            <p style="color:#9CA3AF;font-size:12px;margin:0 0 16px;">{esc(order.get('brand_name', ''))} &middot; Size {esc(order.get('size', ''))}</p>
             <table style="width:100%;border-collapse:collapse;">
                 <tr><td style="{row_style}">Item</td><td style="{val_style}">£{(order.get('price') or 0):.2f}</td></tr>
                 <tr><td style="{row_style}">Buyer Protection</td><td style="{val_style}">£{(order.get('platform_fee') or 0):.2f}</td></tr>
@@ -251,10 +251,26 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
     if claim.modified_count == 0:
         return False
     
-    await db.products.update_one(
-        {"_id": ObjectId(order["product_id"])},
+    # Oversell guard: only decrement if stock is still available
+    stock_result = await db.products.update_one(
+        {"_id": ObjectId(order["product_id"]), "stock": {"$gt": 0}},
         {"$inc": {"stock": -1}}
     )
+    if stock_result.modified_count == 0:
+        # Oversold — another buyer got the last unit. Flag for manual refund.
+        await db.orders.update_one({"_id": order["_id"]}, {"$set": {"oversold": True}})
+        logger.error(
+            f"OVERSOLD: order settled but no stock remained — manual refund required "
+            f"(order={order['_id']} product={order['product_id']})"
+        )
+        await create_notification(
+            user_id=None,
+            brand_id=order["brand_id"],
+            notification_type="oversold_order",
+            title="Action needed: oversold order",
+            message=f"Order #{str(order['_id'])[-6:]} for {order['product_name']} settled after the last unit had already sold — the item sold twice. Please arrange a refund for this order via support.",
+            metadata={"order_id": str(order["_id"]), "product_id": order["product_id"]},
+        )
     
     # Referral: credit the referrer on the buyer's first paid order (atomic flag flip)
     ref_use = await db.referral_uses.find_one_and_update(

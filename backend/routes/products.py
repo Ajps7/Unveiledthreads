@@ -172,9 +172,8 @@ async def get_product(product_id: str):
     return product
 
 @api_router.put("/products/{product_id}")
-async def update_product(product_id: str, request: Request):
+async def update_product(product_id: str, payload: ProductUpdate, request: Request):
     user = await require_brand(request)
-    data = await request.json()
     
     product = await db.products.find_one({"_id": safe_object_id(product_id)})
     if not product:
@@ -184,11 +183,7 @@ async def update_product(product_id: str, request: Request):
     if not brand or str(brand["_id"]) != product["brand_id"]:
         raise HTTPException(status_code=403, detail="Not authorized to edit this product")
     
-    update_fields = {}
-    allowed_fields = ["name", "description", "price", "category", "sizes", "images", "stock", "shipping_cost", "colour", "material", "gender", "condition", "fit"]
-    for field in allowed_fields:
-        if field in data:
-            update_fields[field] = data[field]
+    update_fields = payload.model_dump(exclude_unset=True)
     
     if update_fields:
         await db.products.update_one(
