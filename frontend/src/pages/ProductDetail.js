@@ -7,6 +7,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import Header from '../components/Header';
 import { calcBuyerFee, BUYER_PROTECTION_TOOLTIP } from '../lib/fees';
+import { FoundingBadge } from '../components/FoundingBadge';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -301,7 +302,10 @@ export default function ProductDetail() {
                     )}
                   </div>
                   <div>
-                    <h4 className="text-white font-bold mb-1">{product.brand.brand_name}</h4>
+                    <h4 className="text-white font-bold mb-1 flex items-center gap-2 flex-wrap">
+                      {product.brand.brand_name}
+                      {product.brand.is_founding && <FoundingBadge size="sm" />}
+                    </h4>
                     <p className="text-[#9CA3AF] text-sm line-clamp-2">{product.brand.description}</p>
                     <div className="flex items-center gap-4 mt-2 text-xs text-[#C0C0C0]">
                       <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{product.brand.location}</span>

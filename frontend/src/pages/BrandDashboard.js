@@ -20,6 +20,7 @@ import {
   DialogTrigger,
 } from '../components/ui/dialog';
 import Header from '../components/Header';
+import { FoundingBadge } from '../components/FoundingBadge';
 import ImageUpload from '../components/ImageUpload';
 import { 
   LayoutDashboard, 
@@ -270,6 +271,7 @@ export default function BrandDashboard() {
                 {brandData.brand_name}
               </h1>
               <div className="flex items-center gap-2 mt-1">
+                {brandData.is_founding && <FoundingBadge size="sm" />}
                 {brandData.is_boosted && (
                   <span className="badge-boost text-[10px] flex items-center gap-1">
                     <Zap className="w-3 h-3" />

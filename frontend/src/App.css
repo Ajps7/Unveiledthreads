@@ -44,3 +44,31 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Founding Brand badge — sleek metallic pill with a slow shimmer sweep */
+.founding-badge {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(#0A0A0A, #0A0A0A) padding-box,
+    linear-gradient(120deg, #6b6b6b, #e8e8e8 30%, #39ff14 55%, #e8e8e8 80%, #6b6b6b) border-box;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+}
+
+.founding-badge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(232, 232, 232, 0.22), transparent);
+  transform: skewX(-20deg);
+  animation: founding-shimmer 3.6s ease-in-out infinite;
+}
+
+@keyframes founding-shimmer {
+  0% { left: -60%; }
+  55% { left: 130%; }
+  100% { left: 130%; }
+}

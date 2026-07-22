@@ -353,6 +353,9 @@ REFERRALS_ENABLED = os.environ.get("REFERRALS_ENABLED", "false").lower() == "tru
 
 REFERRAL_CREDIT = 5.0  # £5 credit
 
+# First N approved brands are permanently marked as Founding Brands
+FOUNDING_BRAND_LIMIT = int(os.environ.get("FOUNDING_BRAND_LIMIT", "40"))
+
 # Forbidden content patterns for message surveillance
 import re
 FORBIDDEN_PATTERNS = [
@@ -678,6 +681,7 @@ async def _finalise_approval(application_id, application, origin_url):
     
     # 3. Create brand profile (with unique vanity slug for /@slug URLs)
     slug = await generate_unique_slug(application["brand_name"])
+
     brand_doc = {
         "user_id": user_id_str,
         "brand_name": application["brand_name"],
@@ -696,6 +700,7 @@ async def _finalise_approval(application_id, application, origin_url):
         "stripe_charges_enabled": False,
         "stripe_payouts_enabled": False,
         "stripe_onboarded_at": None,
+        "is_founding": await db.brands.count_documents({}) < FOUNDING_BRAND_LIMIT,
         "created_at": datetime.now(timezone.utc)
     }
     brand_result = await db.brands.insert_one(brand_doc)

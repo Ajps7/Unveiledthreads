@@ -4,6 +4,7 @@ import axios from 'axios';
 import { ArrowLeft, MapPin, Zap, Crown } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import Header from '../components/Header';
+import { FoundingBadge } from '../components/FoundingBadge';
 import ProductCard from '../components/ProductCard';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -104,6 +105,7 @@ export default function BrandProfile() {
               >
                 {brand.brand_name}
               </h1>
+              {brand.is_founding && <FoundingBadge />}
               {brand.is_brand_of_week && (
                 <span className="badge-boost flex items-center gap-1">
                   <Crown className="w-3 h-3" />

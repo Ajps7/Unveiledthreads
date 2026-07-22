@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Zap, MapPin } from 'lucide-react';
+import { FoundingBadge } from './FoundingBadge';
 
 export default function BrandCard({ brand, isBoosted = false }) {
   return (
@@ -37,6 +38,12 @@ export default function BrandCard({ brand, isBoosted = false }) {
       >
         {brand.brand_name}
       </h3>
+      
+      {brand.is_founding && (
+        <div className="mb-3">
+          <FoundingBadge size="sm" />
+        </div>
+      )}
       
       <p className="text-sm text-[#9CA3AF] line-clamp-2 mb-4">
         {brand.description}
