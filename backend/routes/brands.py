@@ -44,6 +44,16 @@ async def get_boosted_brands():
     
     return result
 
+@api_router.get("/brands/founding-spots")
+async def get_founding_spots():
+    """Public counter for the Founding Brand programme (first N brands)."""
+    taken = await db.brands.count_documents({"is_founding": True})
+    return {
+        "limit": FOUNDING_BRAND_LIMIT,
+        "taken": min(taken, FOUNDING_BRAND_LIMIT),
+        "remaining": max(0, FOUNDING_BRAND_LIMIT - taken),
+    }
+
 @api_router.get("/brands/brand-of-week")
 async def get_brand_of_week():
     brand = await db.brands.find_one({"is_brand_of_week": True})

@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import Header from '../components/Header';
 import BrandCard from '../components/BrandCard';
+import { FoundingSpotsCounter } from '../components/FoundingSpots';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -191,9 +192,10 @@ export default function Brands() {
           >
             WANT TO JOIN?
           </h2>
-          <p className="text-[#9CA3AF] mb-6">
+          <p className="text-[#9CA3AF] mb-4">
             Apply to become a seller and launch your brand to a new audience
           </p>
+          <FoundingSpotsCounter />
           <Link to="/apply">
             <Button className="btn-boost" data-testid="apply-cta-button">
               APPLY NOW

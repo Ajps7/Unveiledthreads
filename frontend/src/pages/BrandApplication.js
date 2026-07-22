@@ -14,6 +14,7 @@ import {
 } from '../components/ui/select';
 import { ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
 import Header from '../components/Header';
+import { FoundingSpotsBanner } from '../components/FoundingSpots';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -152,6 +153,8 @@ export default function BrandApplication() {
             Fill out the application below and let us introduce you to the UK streetwear community.
           </p>
         </div>
+
+        <FoundingSpotsBanner />
 
         {!authLoading && !user && (
           <div className="bg-[#39FF14]/10 border border-[#39FF14]/30 p-6 mb-8 flex items-start gap-4">
