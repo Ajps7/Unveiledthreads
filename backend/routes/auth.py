@@ -8,6 +8,11 @@ from core import *  # noqa: F401,F403
 @api_router.post("/auth/register")
 @limiter.limit("10/hour")
 async def register(user_data: UserCreate, request: Request, response: Response):
+    # Validate the password BEFORE the duplicate-email lookup, so a weak
+    # password fails identically whether the email exists or not (preserves
+    # anti-enumeration behaviour).
+    validate_password(user_data.password)
+
     email = user_data.email.lower()
     existing = await db.users.find_one({"email": email})
     if existing:
@@ -195,8 +200,7 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request):
 @limiter.limit("10/hour")
 async def reset_password(payload: ResetPasswordRequest, request: Request):
     """Consume a reset token and set the new password."""
-    if not (8 <= len(payload.new_password) <= 128):
-        raise HTTPException(status_code=400, detail="Password must be 8–128 characters")
+    validate_password(payload.new_password)
     
     token_hash = _hash_reset_token(payload.token)
     token_doc = await db.password_reset_tokens.find_one({"token_hash": token_hash})
@@ -227,5 +231,50 @@ async def reset_password(payload: ResetPasswordRequest, request: Request):
     )
     
     return {"message": "Password updated. You can now log in with your new password."}
+
+
+# ============ CHANGE PASSWORD (authenticated) ============
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@api_router.post("/auth/change-password")
+@limiter.limit("5/hour")
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+):
+    """Let a logged-in user rotate their password without needing an email
+    reset link. Verifies the current password, enforces the shared policy on
+    the new one, and invalidates any outstanding reset tokens for the user."""
+    user = await get_current_user(request)
+
+    # Verify the current password first — 401 signals bad creds, not a policy fail.
+    db_user = await db.users.find_one({"_id": ObjectId(user["id"])})
+    if not db_user or not verify_password(payload.current_password, db_user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+
+    # New must differ from current.
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from your current one.",
+        )
+
+    # Apply the shared policy to the new password.
+    validate_password(payload.new_password)
+
+    new_hash = hash_password(payload.new_password)
+    await db.users.update_one(
+        {"_id": ObjectId(user["id"])},
+        {"$set": {"password_hash": new_hash}},
+    )
+
+    # Invalidate any outstanding reset tokens — matches the reset flow's behaviour.
+    await db.password_reset_tokens.delete_many({"user_id": user["id"]})
+
+    return {"message": "Password updated successfully."}
 
 

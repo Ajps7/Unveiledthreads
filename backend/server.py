@@ -333,6 +333,7 @@ def _validate_env_or_die():
         ("EMERGENT_LLM_KEY", "AI moderation + image storage", "moderation degrades to regex-only"),
         ("ADMIN_EMAIL", "Admin seed email", "admin account seeding is skipped"),
         ("ADMIN_PASSWORD", "Admin seed password", "admin account seeding is skipped"),
+        ("ENVIRONMENT", "Deployment environment gate", "demo data and fallback admin credentials may be seeded in production"),
     ]
 
     missing = [(k, desc, impact) for k, desc, impact in critical if not os.environ.get(k, "").strip()]

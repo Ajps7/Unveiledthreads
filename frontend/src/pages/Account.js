@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import axios from 'axios';
-import { ArrowLeft, Download, Trash2, ShieldAlert, Mail, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, ShieldAlert, Mail, User as UserIcon, KeyRound } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -19,6 +19,46 @@ export default function Account() {
   const [password, setPassword] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // Change-password state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmNewPassword) {
+      toast.error('New passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters.');
+      return;
+    }
+    if (currentPassword === newPassword) {
+      toast.error('New password must be different from your current one.');
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await axios.post(
+        `${API}/api/auth/change-password`,
+        { current_password: currentPassword, new_password: newPassword },
+        { withCredentials: true }
+      );
+      toast.success('Password updated. Use your new password next time you sign in.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err) {
+      // Surface the backend's specific message (e.g. "That password is too common")
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Could not change password. Try again.');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   if (!user) {
     navigate('/login');
@@ -118,6 +158,78 @@ export default function Account() {
           </dl>
         </div>
 
+        {/* Change password */}
+        <div className="border border-white/10 bg-[#0F0F0F] p-6 mb-8" data-testid="change-password-section">
+          <div className="flex items-center gap-3 mb-3">
+            <KeyRound className="w-5 h-5 text-[#39FF14]" />
+            <h2 className="text-lg font-bold text-white uppercase" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              Change password
+            </h2>
+          </div>
+          <p className="text-sm text-[#C0C0C0] leading-relaxed mb-4">
+            Rotate your password without waiting for a reset email. Use at least 8 characters and
+            avoid anything you re-use on other sites.
+          </p>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div>
+              <Label htmlFor="current-password" className="text-xs uppercase tracking-wider text-[#C0C0C0] mb-2 block">
+                Current password
+              </Label>
+              <Input
+                id="current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+                className="bg-black border-white/10 text-white rounded-none focus:border-[#39FF14]"
+                data-testid="current-password-input"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="new-password" className="text-xs uppercase tracking-wider text-[#C0C0C0] mb-2 block">
+                New password
+              </Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                className="bg-black border-white/10 text-white rounded-none focus:border-[#39FF14]"
+                data-testid="new-password-input"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="confirm-new-password" className="text-xs uppercase tracking-wider text-[#C0C0C0] mb-2 block">
+                Confirm new password
+              </Label>
+              <Input
+                id="confirm-new-password"
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                className="bg-black border-white/10 text-white rounded-none focus:border-[#39FF14]"
+                data-testid="confirm-new-password-input"
+                required
+              />
+            </div>
+            <Button
+              type="submit"
+              disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
+              className="bg-[#39FF14] text-black hover:bg-[#39FF14]/90 rounded-none font-bold uppercase tracking-wider text-sm disabled:opacity-40"
+              data-testid="change-password-submit"
+            >
+              <KeyRound className="w-4 h-4 mr-2" />
+              {changingPassword ? 'Updating…' : 'Update password'}
+            </Button>
+          </form>
+        </div>
+
         {/* Export */}
         <div className="border border-white/10 bg-[#0F0F0F] p-6 mb-8">
           <div className="flex items-center gap-3 mb-3">
@@ -182,7 +294,7 @@ export default function Account() {
           <ul className="text-xs text-red-100/70 list-disc list-inside mb-4 space-y-1">
             <li>This cannot be undone.</li>
             <li>Your listings, messages, posts, wishlist and notifications will be wiped.</li>
-            <li>Past orders are kept but anonymised (we're legally required to hold tax records for 6 years).</li>
+            <li>Past orders are kept but anonymised (we&apos;re legally required to hold tax records for 6 years).</li>
             <li>If you sell on the platform, contact Stripe separately to close your connected account.</li>
           </ul>
 

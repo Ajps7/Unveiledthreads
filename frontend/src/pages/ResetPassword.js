@@ -26,8 +26,8 @@ export default function ResetPassword() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
       return;
     }
     if (password !== confirm) {
@@ -84,7 +84,7 @@ export default function ResetPassword() {
           NEW PASSWORD
         </h1>
         <p className="text-[#9CA3AF] mb-8">
-          Choose a strong password — at least 6 characters.
+          Choose a strong password — at least 8 characters. Avoid anything you use elsewhere.
         </p>
 
         {error && (

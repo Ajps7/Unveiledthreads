@@ -127,8 +127,11 @@ logger = logging.getLogger(__name__)
 # ============ MODELS ============
 
 class UserCreate(BaseModel):
+    # NOTE: password constraints are enforced by validate_password() in the route
+    # handler so we return a specific 400 with actionable copy instead of a generic
+    # 422 Pydantic error. Do not add Field(min_length=...) here.
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str
     name: str = Field(min_length=1, max_length=100)
 
 class UserLogin(BaseModel):
@@ -411,6 +414,62 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 
 # ============ HELPER FUNCTIONS ============
+
+# ---------- Password policy (shared by register / reset / change) ----------
+# UK NCSC guidance: length + a common-password blocklist beats composition rules,
+# which just push users toward "Password1!". Do not add "must contain a symbol"
+# checks here.
+MIN_PASSWORD_LENGTH = 8
+# bcrypt==4.1.3 (pinned) silently truncates the input at 72 bytes. A 100-byte
+# passphrase would authenticate on its first 72 bytes with no error — reject
+# explicitly rather than silently truncate.
+MAX_PASSWORD_BYTES = 72
+
+# Case-insensitive blocklist of the ~50 most commonly-breached passwords
+# (SecLists / HIBP top-lists). Compared against .lower().
+COMMON_PASSWORDS = frozenset({
+    "password", "password1", "password123", "passw0rd", "p@ssw0rd", "p@ssword",
+    "123456", "1234567", "12345678", "123456789", "1234567890",
+    "qwerty", "qwerty123", "qwertyuiop", "asdfghjkl", "zxcvbnm",
+    "abc123", "abcd1234", "iloveyou", "letmein", "welcome", "welcome1",
+    "admin", "admin123", "administrator", "root", "toor",
+    "monkey", "dragon", "master", "shadow", "sunshine", "princess",
+    "football", "baseball", "superman", "batman", "starwars", "trustno1",
+    "liverpool", "arsenal", "chelsea", "manutd", "spurs",
+    "andrew", "michael", "jennifer", "michelle", "jessica",
+    "changeme", "default", "test1234", "hello123", "unveiledthreads",
+})
+
+
+def validate_password(password: str) -> None:
+    """Enforce the shared password policy. Raises 400 with a specific,
+    actionable message. Called at every password-creation point (register,
+    reset, change). Never called on login — existing users may hold
+    shorter/legacy passwords and must remain able to sign in."""
+    if password is None or not password.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Password cannot be empty or just whitespace.",
+        )
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters.",
+        )
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Password is too long ({MAX_PASSWORD_BYTES}-byte limit). "
+                "Try a shorter passphrase — length beyond this point isn't stored."
+            ),
+        )
+    if password.lower() in COMMON_PASSWORDS:
+        raise HTTPException(
+            status_code=400,
+            detail="That password is too common — pick something less guessable.",
+        )
+
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
