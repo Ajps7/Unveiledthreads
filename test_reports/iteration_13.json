@@ -1,0 +1,48 @@
+{
+  "summary": "Iter13 regression + new-feature test. (a) 65/65 pre-existing regression suites pass (test_split_regression.py 43 + test_password_policy.py 22). (b) Wrote /app/backend/tests/test_iter13_email_and_magicbytes.py — 10 new tests covering P2a (application confirmation email helper invocation) and P2b (magic-byte sniffing across /api/upload/image, /api/brands/upload-logo, /api/brands/upload-banner). All 10 pass. (c) UI regression walk-through for the 4 refactored pages: BrandDashboard, AddProduct, MyListings, AdminDashboard — every panel/section/modal renders and functions with zero console errors or page errors. Total: 75/75 backend tests green; 4/4 refactored pages verified live.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "refactor_regression_evidence": {
+    "BrandDashboard (/brand/dashboard)": "Renders header with Founding-Brand badge, PRODUCTS/PAYOUTS/CATEGORY/LOCATION stat cards, Brand Profile Images (Upload Logo + Upload Banner), Orders to Fulfil list with per-order payout amounts and status pills. Stripe Connect + Payouts widgets present via 'Payouts — Not set up' state. Share-store panel confirmed via body text scan.",
+    "AddProduct (/brand/add-product)": "All 4 sections render as separate cards: PHOTOS (with Upload Photos button), PRODUCT DETAILS (name/description/category/colour/material/gender/condition/fit), AVAILABLE SIZES (XXS→XXXL + One Size chips), PRICING & STOCK (price/shipping/stock inputs). Live 'Buyer sees' fee preview renders on price entry — verified 'Buyer Protection fee' + 'You receive: £X per sale' both appear after typing £49.99. data-testid attrs present on name/description/price/stock inputs.",
+    "MyListings (/brand/products)": "Renders MyListings header (3 live • 0 in dead stock), Dead Stock Slots quota card (0/10), Active/Dead Stock tab switcher, search input, 3 live product cards each with Edit/View/Move to Dead Stock/delete buttons. All 3 dialogs open cleanly: EditListingDialog, MoveToDeadStockDialog, RequestQuotaDialog (opens with 'REQUEST MORE SLOTS' heading, Requested Quota + Reason inputs, Submit Request button — see screenshot).",
+    "AdminDashboard (/admin)": "Renders MVP Seller Slots panel (6/40, 34 available), Buyers/Total Brands/Products/Pending/Boosted stat row, Brand Applications panel with a working status dropdown defaulted to 'Pending' showing risk-scored application 'Supreme UK 5549' with RISK 50 · HIGH badge + Risk Flags block, Buyer Protection Disputes panel showing '0 OPEN' + empty state 'No open disputes — nice and quiet.'"
+  },
+  "new_tests_written": {
+    "file": "/app/backend/tests/test_iter13_email_and_magicbytes.py (10 tests, 4.79s runtime)",
+    "P2b_magic_byte_tests": [
+      "test_upload_image_real_png_succeeds — 89-byte real PNG → 200 with /api/files/... URL",
+      "test_upload_image_real_webp_succeeds — RIFF+WEBP magic → 200",
+      "test_upload_image_fake_png_html_bytes_rejected — HTML claiming image/png → 400 'doesn't look like a real image'",
+      "test_upload_image_fake_jpeg_text_bytes_rejected — plain text claiming image/jpeg → 400",
+      "test_upload_image_wrong_mime_still_rejected — PDF bytes claiming image/png → 400",
+      "test_upload_image_webp_truncated_rejected — RIFF without WEBP marker at offset 8 → 400",
+      "test_upload_brand_logo_fake_image_rejected — /brands/upload-logo with fake bytes → 400",
+      "test_upload_brand_banner_fake_image_rejected — /brands/upload-banner with fake bytes → 400"
+    ],
+    "P2a_email_tests": [
+      "test_brand_apply_pending_invokes_application_email_helper — snapshots backend log delta around POST /brands/apply; verifies '[MOCK EMAIL — application received]' | '[APPLICATION EMAIL' | 'send_application_received_email' log trace appears for non-auto-approved paths. CONFIRMED: helper is invoked (log shows the mock/warning line). Auto-approve short-circuit is honoured (no double-email).",
+      "test_brand_apply_response_shape_unchanged — response contract preserved: id/message/auto_approved/waitlisted/risk_score all present + typed correctly"
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_email_and_magicbytes.py",
+    "/app/test_reports/pytest/iter13_new.xml",
+    "/app/test_reports/pytest/iter13_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "verify_image_magic_bytes correctly special-cases WEBP with the two-window check (RIFF at 0-4 AND WEBP at 8-12) — the trivially-forged 'RIFFxxxxWEBP...' would still pass, but that's the standard tradeoff for magic-byte sniffing and the current impl matches the file format spec.",
+    "applications.py: 'if not auto_approved' branch wraps send_application_received_email in try/except and only logs on failure — matches the spec 'never let email block application submission'. Good.",
+    "AddProduct.js: sensible extraction — parent stays under 175 lines and hands form state to each of the 4 sub-components. No prop-drilling smell.",
+    "MyListings.js at 448 lines is still on the heavier side; consider splitting the ActiveList and DeadStockList blocks into their own components in a future pass — but no functional regression.",
+    "AdminDashboard: risk-score sort is server-side (routes/applications.py sort([('risk_score',-1),('created_at',-1)])), so the frontend AdminApplicationsPanel just renders in the received order. Good separation."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter13_email_and_magicbytes.py (new — 10 tests)"],
+  "success_rate": {"backend": "100% (75/75 across the 3 pytest suites)", "frontend": "100% (all 4 refactored pages render and interact with zero errors)"},
+  "test_credentials": "testbrand@example.com / TestBrand123! (brand), Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159 (admin), demo@threadandbone.uk / Demo123!",
+  "seed_data_creation": "Test suite creates throwaway users via /api/auth/register (unique emails apptest+{uuid}@example.com) and submits 2 brand applications per run. Uploaded files: 2 real 1x1 PNG/WEBP images (retained in object storage under the demo user's uploads folder — negligible volume, no cleanup required). Existing seeded data untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression stack now: test_split_regression.py (43) + test_password_policy.py (22) + test_iter13_email_and_magicbytes.py (10) = 75 tests, ~18s combined. Run them one file at a time (or with a >6s gap) to avoid the 10/min /api/auth/login rate limit. Real PNG/JPEG/WEBP byte literals are embedded in test_iter13_email_and_magicbytes.py — reuse them for any future upload tests. Applications risk-score sort means new pending apps appear first only when their risk score >= existing — do not assume created_at ordering."
+}

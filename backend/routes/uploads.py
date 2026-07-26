@@ -15,6 +15,13 @@ async def upload_image(request: Request, file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > MAX_IMAGE_SIZE:
         raise HTTPException(status_code=400, detail="Image must be under 5MB. Try compressing your photo.")
+
+    # Magic-byte check — reject files whose real bytes don't match their claimed MIME.
+    if not verify_image_magic_bytes(data, file.content_type):
+        raise HTTPException(
+            status_code=400,
+            detail="This file doesn't look like a real image. Save it again as JPEG, PNG, WebP or GIF and try uploading once more.",
+        )
     
     ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
     file_id = str(uuid.uuid4())
@@ -79,6 +86,12 @@ async def upload_brand_logo(request: Request, file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > MAX_IMAGE_SIZE:
         raise HTTPException(status_code=400, detail="Image must be under 5MB.")
+
+    if not verify_image_magic_bytes(data, file.content_type):
+        raise HTTPException(
+            status_code=400,
+            detail="This file doesn't look like a real image. Save it again as JPEG, PNG, WebP or GIF and try uploading once more.",
+        )
     
     ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
     file_id = str(uuid.uuid4())
@@ -115,6 +128,12 @@ async def upload_brand_banner(request: Request, file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > MAX_IMAGE_SIZE:
         raise HTTPException(status_code=400, detail="Image must be under 5MB.")
+
+    if not verify_image_magic_bytes(data, file.content_type):
+        raise HTTPException(
+            status_code=400,
+            detail="This file doesn't look like a real image. Save it again as JPEG, PNG, WebP or GIF and try uploading once more.",
+        )
     
     ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
     file_id = str(uuid.uuid4())

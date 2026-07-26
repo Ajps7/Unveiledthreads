@@ -22,6 +22,9 @@ import {
 import Header from '../components/Header';
 import { FoundingBadge } from '../components/FoundingBadge';
 import ImageUpload from '../components/ImageUpload';
+import { StripeConnectPanel } from '../components/brand-dashboard/StripeConnectPanel';
+import { PayoutsWidget } from '../components/brand-dashboard/PayoutsWidget';
+import { ShareStorePanel } from '../components/brand-dashboard/ShareStorePanel';
 import { 
   LayoutDashboard, 
   Package, 
@@ -518,163 +521,14 @@ export default function BrandDashboard() {
           </div>
         )}
 
-        {/* Stripe Connect Panel — required for receiving payouts */}
-        {(() => {
-          const fullyConnected = connectStatus && connectStatus.charges_enabled && connectStatus.payouts_enabled;
-          const partiallyConnected = connectStatus && connectStatus.stripe_account_id && !fullyConnected;
-          return (
-            <div
-              className={`mb-12 border p-6 ${
-                fullyConnected
-                  ? 'border-[#39FF14]/30 bg-[#39FF14]/5'
-                  : 'border-yellow-500/30 bg-yellow-500/5'
-              }`}
-              data-testid="stripe-connect-panel"
-            >
-              <div className="flex items-start gap-4">
-                {fullyConnected ? (
-                  <CheckCircle2 className="w-8 h-8 text-[#39FF14] flex-shrink-0" />
-                ) : (
-                  <CreditCard className="w-8 h-8 text-yellow-500 flex-shrink-0" />
-                )}
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Clash Display, sans-serif' }}>
-                    {fullyConnected
-                      ? 'STRIPE PAYOUTS CONNECTED'
-                      : partiallyConnected
-                      ? 'FINISH STRIPE ONBOARDING'
-                      : 'CONNECT STRIPE TO START SELLING'}
-                  </h3>
-                  {fullyConnected ? (
-                    <>
-                      <p className="text-[#9CA3AF] mb-4">
-                        Your brand is set up to receive payments. Buyers pay through Unveiled Threads plus a small Buyer Protection fee (5% + £0.49, max £6 per order) — you keep 100% of your listed price and shipping, paid straight to your bank via Stripe.
-                      </p>
-                      <Button
-                        className="btn-secondary"
-                        onClick={handleOpenStripeDashboard}
-                        data-testid="open-stripe-dashboard-button"
-                      >
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        Open Stripe Dashboard
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-[#9CA3AF] mb-2">
-                        We use <strong className="text-white">Stripe Express</strong> to handle your payouts securely. Stripe collects your bank details, ID and tax info — Unveiled Threads never sees your sensitive data.
-                      </p>
-                      <p className="text-[#9CA3AF] mb-4 text-sm">
-                        ⚡ Onboarding takes about 5 minutes. You won't be able to receive payouts until this is complete, and your products won't appear in the public shop.
-                      </p>
-                      {partiallyConnected && connectStatus.requirements_due?.length > 0 && (
-                        <div className="border border-yellow-500/30 bg-[#0A0A0A] p-3 mb-4 text-xs">
-                          <div className="flex items-center gap-2 mb-1 text-yellow-400 font-bold">
-                            <AlertTriangle className="w-3 h-3" /> Stripe still needs:
-                          </div>
-                          <ul className="text-[#9CA3AF] list-disc list-inside">
-                            {connectStatus.requirements_due.slice(0, 5).map((r) => (
-                              <li key={r}>{r.replace(/_/g, ' ')}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      <Button
-                        className="btn-primary"
-                        onClick={handleConnectStripe}
-                        disabled={connectLoading}
-                        data-testid="connect-stripe-button"
-                      >
-                        {connectLoading ? (
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        ) : (
-                          <CreditCard className="w-4 h-4 mr-2" />
-                        )}
-                        {partiallyConnected ? 'Resume Onboarding' : 'Connect with Stripe'}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        <StripeConnectPanel
+          connectStatus={connectStatus}
+          connectLoading={connectLoading}
+          onConnect={handleConnectStripe}
+          onOpenDashboard={handleOpenStripeDashboard}
+        />
 
-        {/* Payouts widget */}
-        {payouts?.connected && (
-          <div className="mb-12 border border-white/10 bg-[#0A0A0A] p-6" data-testid="payouts-widget">
-            <div className="flex items-start gap-4">
-              <Banknote className="w-8 h-8 text-[#39FF14] flex-shrink-0" />
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-white mb-4" style={{ fontFamily: 'Clash Display, sans-serif' }}>
-                  PAYOUTS
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="border border-white/5 bg-[#0F0F0F] p-4">
-                    <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Available now</p>
-                    <p className="text-2xl font-bold text-[#39FF14]" data-testid="payouts-available">£{payouts.available.toFixed(2)}</p>
-                    <p className="text-[10px] text-[#9CA3AF] mt-1">Ready to pay out to your bank</p>
-                  </div>
-                  <div className="border border-white/5 bg-[#0F0F0F] p-4">
-                    <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Pending</p>
-                    <p className="text-2xl font-bold text-white" data-testid="payouts-pending">£{payouts.pending.toFixed(2)}</p>
-                    <p className="text-[10px] text-[#9CA3AF] mt-1">Recent sales still settling with Stripe</p>
-                  </div>
-                  <div className="border border-white/5 bg-[#0F0F0F] p-4">
-                    <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Next payout</p>
-                    {payouts.next_payout ? (
-                      <>
-                        <p className="text-2xl font-bold text-white" data-testid="payouts-next">£{payouts.next_payout.amount.toFixed(2)}</p>
-                        <p className="text-[10px] text-[#9CA3AF] mt-1">
-                          Arrives {new Date(payouts.next_payout.arrival_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-2xl font-bold text-white" data-testid="payouts-next">—</p>
-                        <p className="text-[10px] text-[#9CA3AF] mt-1">
-                          {payouts.schedule_interval === 'manual'
-                            ? 'Manual payouts — trigger from your Stripe dashboard'
-                            : `Paid out ${payouts.schedule_interval || 'automatically'} once funds are available`}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {payouts.last_payout && (
-                  <p className="text-xs text-[#9CA3AF] mt-4" data-testid="payouts-last">
-                    Last payout: £{payouts.last_payout.amount.toFixed(2)} on{' '}
-                    {new Date(payouts.last_payout.arrival_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </p>
-                )}
-                {payouts.history?.length > 0 && (
-                  <div className="mt-6" data-testid="payout-history">
-                    <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-2">Payout history</p>
-                    <div className="border border-white/5 divide-y divide-white/5 max-h-64 overflow-y-auto">
-                      {payouts.history.map((p, i) => (
-                        <div key={`${p.arrival_date}-${i}`} className="flex items-center justify-between px-4 py-2.5 text-sm" data-testid={`payout-row-${i}`}>
-                          <span className="text-[#9CA3AF]">
-                            {new Date(p.arrival_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          </span>
-                          <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 border ${
-                            p.status === 'paid'
-                              ? 'text-[#39FF14] border-[#39FF14]/30 bg-[#39FF14]/5'
-                              : p.status === 'failed' || p.status === 'canceled'
-                              ? 'text-red-400 border-red-500/30 bg-red-500/5'
-                              : 'text-yellow-400 border-yellow-500/30 bg-yellow-500/5'
-                          }`}>
-                            {p.status.replace('_', ' ')}
-                          </span>
-                          <span className="text-white font-bold">£{p.amount.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        <PayoutsWidget payouts={payouts} />
 
         {/* Boost — Coming Soon */}
         <div
@@ -693,81 +547,13 @@ export default function BrandDashboard() {
                 BOOST YOUR BRAND
               </h3>
               <p className="text-[#9CA3AF] max-w-xl">
-                Premium placement in the Boosted Brands rail and our weekly drops feature. We're polishing this — drop us a line if you'd like early access.
+                Premium placement in the Boosted Brands rail and our weekly drops feature. We&apos;re polishing this — drop us a line if you&apos;d like early access.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Share Your Store — vanity URL + QR */}
-        {brandData?.slug && (() => {
-          const storeUrl = `${window.location.origin}/@${brandData.slug}`;
-          const handleCopy = async () => {
-            try {
-              await navigator.clipboard.writeText(storeUrl);
-              setError('');
-              alert('Store link copied to clipboard!');
-            } catch {
-              window.prompt('Copy this link:', storeUrl);
-            }
-          };
-          const handleDownloadQR = () => {
-            const canvas = document.querySelector('[data-testid="store-qr-canvas"] canvas');
-            if (!canvas) return;
-            const url = canvas.toDataURL('image/png');
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `unveiledthreads-${brandData.slug}-qr.png`;
-            a.click();
-          };
-          return (
-            <div className="mb-12 border border-white/10 bg-[#0A0A0A] p-6" data-testid="store-share-panel">
-              <div className="flex items-start gap-4">
-                <Share2 className="w-8 h-8 text-[#39FF14] flex-shrink-0" />
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold text-white mb-2" style={{ fontFamily: 'Clash Display, sans-serif' }}>
-                    YOUR STORE LINK
-                  </h3>
-                  <p className="text-[#9CA3AF] mb-4 text-sm">
-                    Share this link in your Instagram bio, TikTok profile, email signature, or printed cards.
-                  </p>
-                  <div className="flex flex-col lg:flex-row gap-4 items-start">
-                    <div className="flex-1 w-full">
-                      <div className="flex items-center gap-2 bg-[#0F0F0F] border border-white/10 p-3 font-mono text-sm text-white overflow-x-auto" data-testid="store-url-display">
-                        {storeUrl}
-                      </div>
-                      <div className="flex gap-2 mt-3">
-                        <Button
-                          className="btn-primary text-sm"
-                          onClick={handleCopy}
-                          data-testid="copy-store-link-button"
-                        >
-                          <Copy className="w-4 h-4 mr-2" />
-                          Copy Link
-                        </Button>
-                        <Button
-                          className="btn-secondary text-sm"
-                          onClick={handleDownloadQR}
-                          data-testid="download-qr-button"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          Download QR
-                        </Button>
-                      </div>
-                      <p className="text-xs text-[#9CA3AF] mt-3 flex items-start gap-1">
-                        <QrCode className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                        Need to change your handle? Drop us a line at hello@unveiledthreads.co.uk.
-                      </p>
-                    </div>
-                    <div className="bg-white p-3" data-testid="store-qr-canvas">
-                      <QRCodeCanvas value={storeUrl} size={140} bgColor="#FFFFFF" fgColor="#000000" level="M" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        <ShareStorePanel brandData={brandData} />
 
         {/* Products List */}
         <div>

@@ -3,28 +3,20 @@ import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
 import Header from '../components/Header';
-import { 
-  Shield, 
-  Users, 
-  Package, 
+import { AdminApplicationsPanel } from '../components/admin-dashboard/AdminApplicationsPanel';
+import { AdminDisputesPanel } from '../components/admin-dashboard/AdminDisputesPanel';
+import {
+  Shield,
+  Users,
+  Package,
   ShoppingBag,
-  CheckCircle,
-  XCircle,
   Clock,
   Zap,
   Crown,
   Loader2,
   ExternalLink,
   Trash2,
-  ShieldAlert
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -322,210 +314,21 @@ export default function AdminDashboard() {
         )}
 
         <div className="grid lg:grid-cols-2 gap-8">
-          {/* Applications */}
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <h2 
-                className="text-xl font-bold uppercase text-white"
-                style={{ fontFamily: 'Clash Display, sans-serif' }}
-              >
-                Brand Applications
-              </h2>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px] bg-transparent border-white/20 rounded-none text-white" data-testid="status-filter">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
-                  <SelectItem value="pending" className="text-white hover:bg-white/10 rounded-none">Pending</SelectItem>
-                  <SelectItem value="waitlisted" className="text-white hover:bg-white/10 rounded-none">Waitlisted</SelectItem>
-                  <SelectItem value="approved" className="text-white hover:bg-white/10 rounded-none">Approved</SelectItem>
-                  <SelectItem value="rejected" className="text-white hover:bg-white/10 rounded-none">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <AdminApplicationsPanel
+            applications={applications}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            processing={processing}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
 
-            <div className="space-y-4" data-testid="applications-list">
-              {applications.length > 0 ? (
-                applications.map((app) => {
-                  const score = app.risk_score ?? 0;
-                  const riskTier = score >= 50 ? 'high' : score >= 20 ? 'medium' : 'low';
-                  const riskColour = {
-                    high: 'bg-red-500/10 text-red-400 border-red-500/40',
-                    medium: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/40',
-                    low: 'bg-green-500/10 text-green-400 border-green-500/40',
-                  }[riskTier];
-                  return (
-                  <div key={app.id} className="border border-white/10 bg-[#0A0A0A] p-4">
-                    <div className="flex items-start justify-between mb-3 gap-3">
-                      <div className="flex-1">
-                        <h3 className="text-white font-bold">{app.brand_name}</h3>
-                        <p className="text-xs text-[#9CA3AF]">{app.user?.email}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className={`text-xs uppercase tracking-wider px-2 py-1 ${
-                          app.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' :
-                          app.status === 'approved' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
-                          'bg-red-500/10 text-red-400 border border-red-500/30'
-                        }`}>
-                          {app.status}
-                        </span>
-                        <span
-                          className={`text-[10px] uppercase tracking-wider px-2 py-1 border ${riskColour}`}
-                          title={`Risk score: ${score}`}
-                          data-testid={`risk-badge-${app.id}`}
-                        >
-                          Risk {score} · {riskTier}
-                        </span>
-                        {app.auto_approved && (
-                          <span className="text-[10px] uppercase tracking-wider px-2 py-1 border bg-[#39FF14]/10 text-[#39FF14] border-[#39FF14]/30">
-                            Auto-approved
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-sm text-[#9CA3AF] mb-3 line-clamp-2">{app.description}</p>
-                    <div className="flex flex-wrap gap-2 mb-3 text-xs text-[#C0C0C0]">
-                      <span>{app.location}</span>
-                      <span>•</span>
-                      <span className="capitalize">{app.category}</span>
-                    </div>
-                    {app.risk_reasons && app.risk_reasons.length > 0 && (
-                      <div className="mb-3 p-2 bg-[#0F0F0F] border border-white/5">
-                        <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] mb-1">Risk flags</p>
-                        <ul className="text-xs text-yellow-300 list-disc list-inside space-y-0.5">
-                          {app.risk_reasons.map((r) => (
-                            <li key={r}>{r.replace(/_/g, ' ')}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {app.status === 'pending' && (
-                      <div className="flex gap-2">
-                        <Button 
-                          className="btn-primary flex-1 text-sm py-2"
-                          onClick={() => handleApprove(app.id)}
-                          disabled={processing === app.id}
-                          data-testid={`approve-${app.id}`}
-                        >
-                          {processing === app.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
-                          Approve
-                        </Button>
-                        <Button 
-                          className="btn-secondary flex-1 text-sm py-2 text-red-400 hover:text-red-300"
-                          onClick={() => handleReject(app.id)}
-                          disabled={processing === app.id}
-                          data-testid={`reject-${app.id}`}
-                        >
-                          <XCircle className="w-4 h-4 mr-1" />
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  );
-                })
-              ) : (
-                <div className="border border-white/10 bg-[#0A0A0A] p-8 text-center">
-                  <p className="text-[#9CA3AF]">No {statusFilter} applications</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Buyer Protection Disputes */}
-          <div className="mb-12" data-testid="admin-disputes-section">
-            <div className="flex items-center justify-between mb-4">
-              <h2
-                className="text-xl font-bold uppercase text-white flex items-center gap-2"
-                style={{ fontFamily: 'Clash Display, sans-serif' }}
-              >
-                <ShieldAlert className="w-5 h-5 text-yellow-300" />
-                Buyer Protection Disputes
-              </h2>
-              <span
-                className="text-xs uppercase tracking-wider px-3 py-1 bg-yellow-500/10 text-yellow-300 border border-yellow-500/30"
-                data-testid="open-disputes-count"
-              >
-                {disputes.length} open
-              </span>
-            </div>
-            {disputes.length === 0 ? (
-              <div className="border border-white/10 bg-[#0A0A0A] p-8 text-center">
-                <ShieldAlert className="w-8 h-8 text-[#39FF14]/30 mx-auto mb-3" />
-                <p className="text-[#9CA3AF] text-sm">No open disputes — nice and quiet.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {disputes.map((d) => {
-                  const order = d.order_summary || {};
-                  return (
-                    <div key={d.id} className="border border-yellow-500/30 bg-yellow-500/5 p-5" data-testid={`dispute-${d.id}`}>
-                      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                        <div>
-                          <p className="text-xs uppercase tracking-wider text-yellow-300 font-bold mb-1">
-                            Non-delivery dispute
-                          </p>
-                          <p className="text-white font-bold">{order.product_name || 'Unknown product'}</p>
-                          <p className="text-xs text-[#9CA3AF]">
-                            £{Number(order.total_price || 0).toFixed(2)} · {d.brand_name || 'Unknown brand'} · Order #{d.order_id.slice(-6)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">Filed</p>
-                          <p className="text-xs text-white">
-                            {new Date(d.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="bg-[#0F0F0F] border border-white/5 p-3 mb-3">
-                        <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] mb-1">Buyer says</p>
-                        <p className="text-sm text-white whitespace-pre-wrap">{d.buyer_message}</p>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs mb-4">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">Shipping status</p>
-                          <p className="text-white">{order.shipping_status || 'unknown'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">Tracking</p>
-                          <p className="text-white">
-                            {order.tracking_number
-                              ? `${order.courier || ''} ${order.tracking_number}`
-                              : <span className="text-yellow-300">None entered</span>}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2 flex-wrap">
-                        <Button
-                          className="btn-primary text-sm py-2"
-                          onClick={() => handleRefundDispute(d.id)}
-                          disabled={disputeProcessing === d.id}
-                          data-testid={`refund-dispute-${d.id}`}
-                        >
-                          {disputeProcessing === d.id
-                            ? <Loader2 className="w-4 h-4 animate-spin" />
-                            : <CheckCircle className="w-4 h-4 mr-1" />}
-                          Refund Buyer
-                        </Button>
-                        <Button
-                          className="btn-secondary text-sm py-2 text-red-400 hover:text-red-300"
-                          onClick={() => handleCloseDispute(d.id)}
-                          disabled={disputeProcessing === d.id}
-                          data-testid={`close-dispute-${d.id}`}
-                        >
-                          <XCircle className="w-4 h-4 mr-1" />
-                          Close Without Refund
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <AdminDisputesPanel
+            disputes={disputes}
+            disputeProcessing={disputeProcessing}
+            onRefund={handleRefundDispute}
+            onClose={handleCloseDispute}
+          />
 
           {/* Brands Management */}
           <div>

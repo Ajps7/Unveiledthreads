@@ -43,6 +43,19 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
     if not cap_reached and risk_score < AUTO_APPROVE_RISK_THRESHOLD:
         await _finalise_approval(application_id, app_doc, origin_url=str(request.base_url).rstrip("/"))
         auto_approved = True
+
+    # Confirmation email for pending + waitlisted paths only. Auto-approved
+    # brands already receive the Stripe onboarding email via _finalise_approval.
+    if not auto_approved:
+        try:
+            await send_application_received_email(
+                recipient_email=user["email"],
+                brand_name=application.brand_name,
+                is_waitlisted=cap_reached,
+            )
+        except Exception as e:
+            # Never let an email failure block an application submission.
+            logger.warning(f"send_application_received_email failed: {e}")
     
     if cap_reached:
         message = (

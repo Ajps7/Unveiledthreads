@@ -413,6 +413,37 @@ def get_object(path: str):
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 
+# Magic-byte signatures for the image formats we allow. Trusting the client's
+# Content-Type header alone is unsafe — a malicious upload could claim
+# image/png while actually being an HTML/JS payload (stored-XSS via the
+# /files endpoint) or a Windows PE. We sniff the first bytes and match them
+# against the claimed MIME. Rejects mismatches at the boundary.
+_IMAGE_MAGIC_BYTES: dict[str, tuple[bytes, ...]] = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    # WEBP: bytes[0:4] == b"RIFF" AND bytes[8:12] == b"WEBP". Handled specially below.
+    "image/webp": (b"RIFF",),
+}
+
+
+def verify_image_magic_bytes(data: bytes, claimed_content_type: str) -> bool:
+    """Return True iff `data`'s magic bytes match the claimed MIME.
+
+    Called by every image upload route BEFORE writing to object storage.
+    A False result means the client lied about the file format (or the file
+    is truncated / not an image at all) — the upload must be rejected.
+    """
+    if not data or claimed_content_type not in _IMAGE_MAGIC_BYTES:
+        return False
+
+    # WEBP needs a two-window check: RIFF magic + WEBP marker at offset 8.
+    if claimed_content_type == "image/webp":
+        return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP"
+
+    prefixes = _IMAGE_MAGIC_BYTES[claimed_content_type]
+    return any(data.startswith(p) for p in prefixes)
+
 # ============ HELPER FUNCTIONS ============
 
 # ---------- Password policy (shared by register / reset / change) ----------
@@ -883,3 +914,105 @@ async def create_notification(user_id: Optional[str], brand_id: Optional[str], n
     else:
         logger.info(f"[MOCK EMAIL] To: user={user_id} brand={brand_id} | {title} | {message}")
 
+
+# ============ APPLICATION CONFIRMATION EMAIL ============
+
+async def send_application_received_email(
+    recipient_email: str,
+    brand_name: str,
+    is_waitlisted: bool = False,
+) -> None:
+    """Fire a branded "we got your application" email that also hypes the
+    Founding-Brand badge. Sent for pending + waitlisted apps only —
+    auto-approved brands already receive the Stripe onboarding email via
+    _finalise_approval, so no double-mail there.
+
+    Failures are logged, never raised: an email hiccup must not block an
+    application submission.
+    """
+    if not (RESEND_API_KEY and recipient_email):
+        logger.info(
+            f"[MOCK EMAIL — application received] To: {recipient_email} | "
+            f"brand={brand_name} waitlisted={is_waitlisted}"
+        )
+        return
+
+    try:
+        founding_taken = await db.brands.count_documents({"is_founding": True})
+        founding_remaining = max(0, FOUNDING_BRAND_LIMIT - founding_taken)
+    except Exception:  # DB hiccup — still send the mail without the counter
+        founding_remaining = 0
+
+    show_founding_badge = founding_remaining > 0 and not is_waitlisted
+
+    if is_waitlisted:
+        headline = "You're on the waitlist"
+        intro = (
+            f"Thanks for applying to sell on Unveiled Threads with "
+            f"<strong style=\"color:#fff;\">{esc(brand_name)}</strong>. "
+            f"We're capping the platform during our MVP phase, so you're on the "
+            f"waitlist — we'll email you the moment a slot opens up."
+        )
+    else:
+        headline = "Application received"
+        intro = (
+            f"Thanks for applying to sell on Unveiled Threads with "
+            f"<strong style=\"color:#fff;\">{esc(brand_name)}</strong>. "
+            f"Our team is reviewing your application now — you'll hear back within 24 hours."
+        )
+
+    founding_block = ""
+    if show_founding_badge:
+        founding_block = f"""
+            <div style="border:1px solid #39FF14;background:#0A0A0A;padding:20px;margin:24px 0;">
+                <p style="color:#39FF14;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 8px;">
+                    Founding Brand — first 40 only
+                </p>
+                <p style="color:#fff;font-size:16px;font-weight:bold;margin:0 0 8px;">
+                    You're in line for the Founding Brand badge.
+                </p>
+                <p style="color:#9CA3AF;font-size:13px;line-height:1.6;margin:0;">
+                    The first 40 brands approved on Unveiled Threads get a permanent, exclusive
+                    Founding Brand badge on their profile — a metallic mark that stays with your
+                    shop forever. Only
+                    <strong style="color:#39FF14;">{founding_remaining}</strong> of 40 spots
+                    left. Tell your community while the badge is still up for grabs.
+                </p>
+            </div>
+        """
+
+    html_content = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+            <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;letter-spacing:1px;">UNVEILED THREADS</h1>
+            <hr style="border:1px solid #27272A;margin:16px 0;">
+            <h2 style="color:#fff;font-size:22px;margin:0 0 12px;">{headline}</h2>
+            <p style="color:#9CA3AF;line-height:1.6;margin:0 0 16px;">{intro}</p>
+            {founding_block}
+            <p style="color:#9CA3AF;font-size:13px;line-height:1.6;">
+                While you wait, follow us and tell your community you're joining Unveiled Threads —
+                the UK's marketplace for independent streetwear.
+            </p>
+            <hr style="border:1px solid #27272A;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+        </div>
+    """
+
+    subject = (
+        "Unveiled Threads — You're on the waitlist"
+        if is_waitlisted
+        else "Unveiled Threads — Application received"
+    )
+
+    try:
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": SENDER_EMAIL,
+                "to": [recipient_email],
+                "subject": subject,
+                "html": html_content,
+            },
+        )
+        logger.info(f"[APPLICATION EMAIL SENT] To: {recipient_email} | waitlisted={is_waitlisted}")
+    except Exception as e:
+        logger.warning(f"[APPLICATION EMAIL FAILED] To: {recipient_email} | Error: {e}")
