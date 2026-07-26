@@ -7,11 +7,11 @@ import type { Order } from '../api/types';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { getTrackingUrl } from '../lib/courierTracking';
 import { gbp, shortDate, shippingLabel } from '../lib/format';
-import type { OrdersStackParamList } from '../navigation/types';
+import type { AccountStackParamList } from '../navigation/types';
 import { colors, spacing, type } from '../theme';
 import { Badge, Button, Divider, ErrorNotice, Loading } from '../components/ui';
 
-type Props = NativeStackScreenProps<OrdersStackParamList, 'OrderDetail'>;
+type Props = NativeStackScreenProps<AccountStackParamList, 'OrderDetail'>;
 
 /** The Vinted-style timeline the web app shows, in order. */
 const TIMELINE: { key: string; label: string }[] = [

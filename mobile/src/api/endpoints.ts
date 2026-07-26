@@ -3,12 +3,15 @@ import { WEB_BASE_URL } from './config';
 import type {
   Brand,
   CheckoutResponse,
+  CommunityPost,
   Conversation,
   FilterOptions,
   Message,
   Notification,
   Order,
   OrderStatusResponse,
+  PollResponse,
+  PostComment,
   Product,
   ProductFilters,
   User,
@@ -158,6 +161,35 @@ export const notifications = {
 
   markRead: (notificationId: string) =>
     api.post<{ message: string }>(`/api/notifications/${notificationId}/read`),
+
+  /** Unread notification + message counts in one call, for the tab badges. */
+  poll: (signal?: AbortSignal) =>
+    api.get<PollResponse>('/api/notifications/poll', undefined, signal),
+};
+
+// ---------- community ----------
+
+export const community = {
+  posts: (signal?: AbortSignal) =>
+    api.get<CommunityPost[]>('/api/community/posts', undefined, signal),
+
+  createPost: (content: string, brandTag?: string) =>
+    api.post<CommunityPost>('/api/community/posts', {
+      content,
+      ...(brandTag ? { brand_tag: brandTag } : {}),
+    }),
+
+  toggleLike: (postId: string) =>
+    api.post<{ liked: boolean; like_count: number }>(`/api/community/posts/${postId}/like`),
+
+  comments: (postId: string, signal?: AbortSignal) =>
+    api.get<PostComment[]>(`/api/community/posts/${postId}/comments`, undefined, signal),
+
+  addComment: (postId: string, content: string) =>
+    api.post<PostComment>(`/api/community/posts/${postId}/comments`, { content }),
+
+  deletePost: (postId: string) =>
+    api.delete<{ message: string }>(`/api/community/posts/${postId}`),
 };
 
 // ---------- account (UK GDPR self-service) ----------

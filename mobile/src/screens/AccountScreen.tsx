@@ -94,6 +94,22 @@ export function AccountScreen({ navigation }: Props) {
 
       <Divider />
 
+      <Text style={type.overline}>Activity</Text>
+      <View style={styles.group}>
+        <Button
+          label="My orders"
+          variant="secondary"
+          onPress={() => navigation.navigate('Orders')}
+        />
+        <Button
+          label="Notifications"
+          variant="secondary"
+          onPress={() => navigation.navigate('Notifications')}
+        />
+      </View>
+
+      <Divider />
+
       <Text style={type.overline}>Security</Text>
       <View style={styles.group}>
         <Button

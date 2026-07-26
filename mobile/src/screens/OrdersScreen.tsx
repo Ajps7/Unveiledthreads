@@ -7,11 +7,11 @@ import { orders as ordersApi } from '../api/endpoints';
 import type { Order } from '../api/types';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { gbp, shortDate, shippingLabel } from '../lib/format';
-import type { MainTabParamList, OrdersStackParamList } from '../navigation/types';
+import type { AccountStackParamList, MainTabParamList } from '../navigation/types';
 import { colors, spacing, type } from '../theme';
 import { Badge, EmptyState, ErrorNotice, Loading } from '../components/ui';
 
-type Props = NativeStackScreenProps<OrdersStackParamList, 'Orders'>;
+type Props = NativeStackScreenProps<AccountStackParamList, 'Orders'>;
 
 /**
  * Only orders that reached `paid` represent a real purchase. Sessions that were
@@ -27,11 +27,7 @@ export function OrdersScreen({ navigation }: Props) {
   const paid = (list.data ?? []).filter(isRealOrder);
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={type.h1}>My orders</Text>
-      </View>
-
+    <SafeAreaView style={styles.screen} edges={['left', 'right']}>
       {list.loading && !list.data ? (
         <Loading />
       ) : (
@@ -98,8 +94,7 @@ export function OrdersScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xxl },
   card: { borderWidth: 1, borderColor: colors.borderLight, padding: spacing.md, marginBottom: spacing.md },
   cardPressed: { borderColor: colors.primary },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },

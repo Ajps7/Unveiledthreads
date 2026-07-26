@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { resolveImageUrl } from '../api/config';
-import { products as productsApi, wishlist as wishlistApi } from '../api/endpoints';
+import { brands as brandsApi, products as productsApi, wishlist as wishlistApi } from '../api/endpoints';
 import type { Product } from '../api/types';
 import { useAsyncData, messageFromError } from '../hooks/useAsyncData';
 import { useCheckout } from '../hooks/useCheckout';
@@ -97,7 +97,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
               onPress: () =>
                 navigation
                   .getParent<BottomTabNavigationProp<MainTabParamList>>()
-                  ?.navigate('OrdersTab', { screen: 'Orders' }),
+                  ?.navigate('AccountTab', { screen: 'Orders' }),
             },
           ],
         );
@@ -116,6 +116,38 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         break;
     }
   }, [product, selectedSize, checkout, navigation]);
+
+  const openBrand = useCallback(() => {
+    const item = product.data;
+    if (!item) return;
+    navigation.navigate('BrandProfile', {
+      brandId: item.brand_id,
+      brandName: item.brand_name,
+    });
+  }, [product.data, navigation]);
+
+  /**
+   * Conversations are between users, but a product only carries `brand_id`.
+   * Resolve the brand to get its owning `user_id` before opening the thread.
+   */
+  const messageBrand = useCallback(async () => {
+    const item = product.data;
+    if (!item) return;
+    setActionError(null);
+    try {
+      const brand = await brandsApi.get(item.brand_id);
+      navigation.getParent<BottomTabNavigationProp<MainTabParamList>>()?.navigate('MessagesTab', {
+        screen: 'Conversation',
+        params: {
+          conversationId: null,
+          title: brand.brand_name,
+          recipientId: brand.user_id,
+        },
+      });
+    } catch (error) {
+      setActionError(messageFromError(error));
+    }
+  }, [product.data, navigation]);
 
   if (product.loading && !product.data) return <Loading label="Loading piece" />;
 
@@ -153,7 +185,9 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         </View>
 
         <View style={styles.body}>
-          <Text style={type.overline}>{item.brand_name}</Text>
+          <Pressable onPress={openBrand} accessibilityRole="button">
+            <Text style={styles.brandLink}>{item.brand_name} ›</Text>
+          </Pressable>
           <Text style={[type.h2, styles.name]}>{item.name}</Text>
           <Text style={styles.price}>{gbp(item.price)}</Text>
 
@@ -212,6 +246,14 @@ export function ProductDetailScreen({ route, navigation }: Props) {
             </View>
           </View>
           <Text style={styles.feeNote}>{BUYER_PROTECTION_BLURB}</Text>
+
+          <Divider />
+
+          <Button label={`Message ${item.brand_name}`} variant="secondary" onPress={messageBrand} />
+          <Text style={styles.messageNote}>
+            Ask about sizing or condition. Keep it on Unveiled Threads — off-platform deals are not
+            covered by Buyer Protection.
+          </Text>
 
           {!!item.description && (
             <>
@@ -290,6 +332,8 @@ const styles = StyleSheet.create({
   heroImage: { width: '100%', height: '100%' },
   heroFallback: { alignItems: 'center', justifyContent: 'center' },
   body: { padding: spacing.lg },
+  brandLink: { ...type.overline, color: colors.primary },
+  messageNote: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
   name: { marginTop: spacing.sm },
   price: { color: colors.primary, fontSize: 26, fontWeight: '900', marginTop: spacing.xs },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },

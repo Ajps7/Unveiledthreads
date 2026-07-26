@@ -37,6 +37,11 @@ export interface Product {
 
 export interface Brand {
   id: string;
+  /**
+   * The owning user's id. This is the `recipient_id` for messaging a brand —
+   * brand_id will not work, conversations are between users.
+   */
+  user_id: string;
   brand_name: string;
   slug?: string;
   description?: string;
@@ -46,6 +51,8 @@ export interface Brand {
   banner_url?: string | null;
   is_boosted?: boolean;
   is_brand_of_week?: boolean;
+  stripe_charges_enabled?: boolean;
+  /** Only present on GET /api/brands/{id}, not on the list endpoint. */
   products?: Product[];
 }
 
@@ -145,6 +152,41 @@ export interface Notification {
   read: boolean;
   metadata?: Record<string, unknown>;
   created_at: string;
+}
+
+export interface CommunityPost {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_role?: string;
+  content: string;
+  brand_tag?: string | null;
+  image_url?: string | null;
+  /** Array of user ids — length is the like count, membership is "did I like it". */
+  likes: string[];
+  comment_count: number;
+  brand_name?: string;
+  brand_id?: string;
+  created_at: string;
+}
+
+export interface PostComment {
+  id: string;
+  post_id?: string;
+  product_id?: string;
+  user_id: string;
+  user_name: string;
+  content: string;
+  likes?: string[];
+  created_at: string;
+}
+
+/** Combined badge poll — one request instead of three. */
+export interface PollResponse {
+  notifications: number;
+  messages: number;
+  total: number;
+  latest: Notification[];
 }
 
 export interface FilterOptions {

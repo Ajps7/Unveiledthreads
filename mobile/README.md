@@ -12,14 +12,39 @@ The complete buyer journey:
 |---|---|---|
 | Auth | Sign in, register, forgot password | `/api/auth/login`, `/register`, `/forgot-password`, `/me`, `/refresh`, `/logout` |
 | Shop | Product grid with search, category and sort | `/api/products`, `/api/categories` |
-| Product | Detail, size picker, price breakdown, wishlist, buy | `/api/products/{id}`, `/api/wishlist/*`, `/api/orders/checkout` |
+| Product | Detail, size picker, price breakdown, wishlist, buy, message brand | `/api/products/{id}`, `/api/wishlist/*`, `/api/orders/checkout` |
+| Brands | Directory, brand profile with their pieces | `/api/brands`, `/api/brands/{id}` |
+| Community | Feed, compose, likes, replies | `/api/community/posts`, `/posts/{id}/like`, `/posts/{id}/comments` |
 | Wishlist | Saved pieces grid | `/api/wishlist` |
 | Orders | List, detail, shipping timeline, courier tracking, receipt | `/api/orders/my-orders`, `/api/orders/status/{session_id}` |
-| Messages | Conversations, thread, composer | `/api/conversations`, `/api/messages/send` |
+| Messages | Conversations, thread, composer, new threads | `/api/conversations`, `/api/messages/send` |
+| Notifications | List, mark read, tab badges | `/api/notifications`, `/notifications/poll` |
 | Account | Profile, change password, GDPR export/delete, sign out | `/api/auth/change-password`, `/api/account/*` |
 
 Seller tooling (listings, payouts, dispute handling) and brand applications are
 deliberately **not** here — they stay on the web dashboard.
+
+### Navigation shape
+
+Five tabs: **SHOP · FEED · SAVED · INBOX · YOU**. Orders sit under YOU rather
+than in the tab bar, matching how Depop and Vinted place purchases; the
+post-checkout alert deep-links straight there, so the path that matters is
+still one tap. Brands live inside the Shop stack, reachable from the shop
+header or by tapping a brand name on any product.
+
+Unread counts come from `/api/notifications/poll` (one request for both
+badges) every 45s while the app is foregrounded, pausing entirely when
+backgrounded and refreshing on resume. The web app polls every 10s, which
+would be wasteful on a phone. Push notifications remain the right long-term
+answer and are already on the backlog in `memory/PRD.md`.
+
+### Starting a conversation
+
+Conversations are between *users*, but a product only carries `brand_id`, so
+"Message this brand" resolves the brand first to get its owning `user_id`. A
+brand-new thread has no id yet — `ConversationScreen` accepts
+`conversationId: null`, and adopts the `conversation_id` off the first sent
+message, which is how the backend reports the thread it created.
 
 ## Running it
 
@@ -108,7 +133,7 @@ fight the brutalist grid.
 ## Verified
 
 - `npx tsc --noEmit` — clean.
-- `npx expo export --platform ios` — bundles (2.14 MB).
+- `npx expo export --platform ios` — bundles (2.17 MB).
 
 **Not** verified: nothing has run against a live backend or on a device or
 simulator. Every screen is written against the API contract as read from the

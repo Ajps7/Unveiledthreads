@@ -81,7 +81,16 @@ export function ShopScreen({ navigation }: Props) {
     <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.wordmark}>UNVEILED THREADS</Text>
-        <Text style={type.h1}>Shop</Text>
+        <View style={styles.headerRow}>
+          <Text style={type.h1}>Shop</Text>
+          <Pressable
+            onPress={() => navigation.navigate('Brands')}
+            accessibilityRole="button"
+            style={styles.brandsLink}
+          >
+            <Text style={styles.brandsLinkLabel}>Brands ›</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.searchWrap}>
@@ -204,6 +213,9 @@ function Chip({
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: { paddingHorizontal: HORIZONTAL_PADDING, paddingTop: spacing.md },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  brandsLink: { paddingVertical: spacing.xs, paddingLeft: spacing.md },
+  brandsLinkLabel: { color: colors.primary, fontSize: 13, fontWeight: '700', letterSpacing: 0.5 },
   wordmark: { ...type.overline, color: colors.primary, marginBottom: spacing.sm },
   searchWrap: { paddingHorizontal: HORIZONTAL_PADDING, marginTop: spacing.md },
   search: {

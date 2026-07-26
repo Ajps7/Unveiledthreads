@@ -4,6 +4,7 @@ import { NavigationContainer, DarkTheme, type Theme } from '@react-navigation/na
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
+import { useUnreadBadges } from '../hooks/useUnreadBadges';
 import { colors } from '../theme';
 import { Loading } from '../components/ui';
 import { LoginScreen } from '../screens/LoginScreen';
@@ -11,19 +12,24 @@ import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { ShopScreen } from '../screens/ShopScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
+import { BrandsScreen } from '../screens/BrandsScreen';
+import { BrandProfileScreen } from '../screens/BrandProfileScreen';
+import { CommunityScreen } from '../screens/CommunityScreen';
+import { PostCommentsScreen } from '../screens/PostCommentsScreen';
 import { WishlistScreen } from '../screens/WishlistScreen';
 import { OrdersScreen } from '../screens/OrdersScreen';
 import { OrderDetailScreen } from '../screens/OrderDetailScreen';
 import { ConversationsScreen } from '../screens/ConversationsScreen';
 import { ConversationScreen } from '../screens/ConversationScreen';
 import { AccountScreen } from '../screens/AccountScreen';
+import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import type {
   AccountStackParamList,
   AuthStackParamList,
+  CommunityStackParamList,
   MainTabParamList,
   MessagesStackParamList,
-  OrdersStackParamList,
   ShopStackParamList,
 } from './types';
 
@@ -57,16 +63,12 @@ function AuthNavigator() {
     <AuthStack.Navigator screenOptions={{ ...screenOptions, headerShown: false }}>
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Register" component={RegisterScreen} />
-      <AuthStack.Screen
-        name="ForgotPassword"
-        component={ForgotPasswordScreen}
-        options={{ headerShown: false }}
-      />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </AuthStack.Navigator>
   );
 }
 
-// ---------- tabs ----------
+// ---------- shop ----------
 
 const ShopStack = createNativeStackNavigator<ShopStackParamList>();
 
@@ -79,24 +81,38 @@ function ShopNavigator() {
         component={ProductDetailScreen}
         options={({ route }) => ({ title: route.params.productName ?? 'Piece' })}
       />
+      <ShopStack.Screen name="Brands" component={BrandsScreen} options={{ title: 'Brands' }} />
+      <ShopStack.Screen
+        name="BrandProfile"
+        component={BrandProfileScreen}
+        options={({ route }) => ({ title: route.params.brandName ?? 'Brand' })}
+      />
     </ShopStack.Navigator>
   );
 }
 
-const OrdersStack = createNativeStackNavigator<OrdersStackParamList>();
+// ---------- community ----------
 
-function OrdersNavigator() {
+const CommunityStack = createNativeStackNavigator<CommunityStackParamList>();
+
+function CommunityNavigator() {
   return (
-    <OrdersStack.Navigator screenOptions={screenOptions}>
-      <OrdersStack.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }} />
-      <OrdersStack.Screen
-        name="OrderDetail"
-        component={OrderDetailScreen}
-        options={{ title: 'Order' }}
+    <CommunityStack.Navigator screenOptions={screenOptions}>
+      <CommunityStack.Screen
+        name="Community"
+        component={CommunityScreen}
+        options={{ headerShown: false }}
       />
-    </OrdersStack.Navigator>
+      <CommunityStack.Screen
+        name="PostComments"
+        component={PostCommentsScreen}
+        options={{ title: 'Replies' }}
+      />
+    </CommunityStack.Navigator>
   );
 }
+
+// ---------- messages ----------
 
 const MessagesStack = createNativeStackNavigator<MessagesStackParamList>();
 
@@ -117,6 +133,8 @@ function MessagesNavigator() {
   );
 }
 
+// ---------- account ----------
+
 const AccountStack = createNativeStackNavigator<AccountStackParamList>();
 
 function AccountNavigator() {
@@ -127,6 +145,17 @@ function AccountNavigator() {
         component={AccountScreen}
         options={{ headerShown: false }}
       />
+      <AccountStack.Screen name="Orders" component={OrdersScreen} options={{ title: 'My orders' }} />
+      <AccountStack.Screen
+        name="OrderDetail"
+        component={OrderDetailScreen}
+        options={{ title: 'Order' }}
+      />
+      <AccountStack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ title: 'Notifications' }}
+      />
       <AccountStack.Screen
         name="ChangePassword"
         component={ChangePasswordScreen}
@@ -135,6 +164,8 @@ function AccountNavigator() {
     </AccountStack.Navigator>
   );
 }
+
+// ---------- tabs ----------
 
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 
@@ -151,6 +182,13 @@ function TabGlyph({ glyph, focused }: { glyph: string; focused: boolean }) {
 }
 
 function MainNavigator() {
+  const { status } = useAuth();
+  const { counts } = useUnreadBadges(status === 'authenticated');
+
+  // react-navigation treats 0 as a visible empty badge, so pass undefined.
+  const messageBadge = counts?.messages ? counts.messages : undefined;
+  const notificationBadge = counts?.notifications ? counts.notifications : undefined;
+
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -163,6 +201,7 @@ function MainNavigator() {
           borderTopWidth: 1,
         },
         tabBarLabelStyle: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+        tabBarBadgeStyle: { backgroundColor: colors.primary, color: colors.primaryText },
       }}
     >
       <Tabs.Screen
@@ -174,6 +213,14 @@ function MainNavigator() {
         }}
       />
       <Tabs.Screen
+        name="CommunityTab"
+        component={CommunityNavigator}
+        options={{
+          title: 'FEED',
+          tabBarIcon: ({ focused }) => <TabGlyph glyph="◈" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="WishlistTab"
         component={WishlistScreen}
         options={{
@@ -182,18 +229,11 @@ function MainNavigator() {
         }}
       />
       <Tabs.Screen
-        name="OrdersTab"
-        component={OrdersNavigator}
-        options={{
-          title: 'ORDERS',
-          tabBarIcon: ({ focused }) => <TabGlyph glyph="▤" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
         name="MessagesTab"
         component={MessagesNavigator}
         options={{
           title: 'INBOX',
+          tabBarBadge: messageBadge,
           tabBarIcon: ({ focused }) => <TabGlyph glyph="✉" focused={focused} />,
         }}
       />
@@ -202,6 +242,7 @@ function MainNavigator() {
         component={AccountNavigator}
         options={{
           title: 'YOU',
+          tabBarBadge: notificationBadge,
           tabBarIcon: ({ focused }) => <TabGlyph glyph="◉" focused={focused} />,
         }}
       />

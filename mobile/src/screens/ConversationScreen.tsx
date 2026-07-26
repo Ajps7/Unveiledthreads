@@ -29,16 +29,26 @@ type Props = NativeStackScreenProps<MessagesStackParamList, 'Conversation'>;
  * writing our own, so the rule reads the same everywhere.
  */
 export function ConversationScreen({ route, navigation }: Props) {
-  const { conversationId, title, recipientId } = route.params;
+  const { title, recipientId } = route.params;
   const { user } = useAuth();
   const listRef = useRef<FlatList<Message>>(null);
+
+  /**
+   * Null when the thread does not exist yet ("Message this brand" from a
+   * product or brand page). The backend creates the conversation on first
+   * send and returns the message with its `conversation_id`, which we adopt
+   * so subsequent loads work normally.
+   */
+  const [conversationId, setConversationId] = useState<string | null>(
+    route.params.conversationId,
+  );
 
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
   const thread = useAsyncData<Message[]>(
-    (signal) => messaging.messages(conversationId, signal),
+    async (signal) => (conversationId ? messaging.messages(conversationId, signal) : []),
     [conversationId],
   );
 
@@ -55,15 +65,21 @@ export function ConversationScreen({ route, navigation }: Props) {
     setSending(true);
     setSendError(null);
     try {
-      await messaging.send(recipientId, content);
+      const sent = await messaging.send(recipientId, content);
       setDraft('');
-      thread.reload();
+
+      if (!conversationId && sent.conversation_id) {
+        // First message in a new thread — adopting the id re-runs the loader.
+        setConversationId(sent.conversation_id);
+      } else {
+        thread.reload();
+      }
     } catch (error) {
       setSendError(messageFromError(error));
     } finally {
       setSending(false);
     }
-  }, [draft, sending, recipientId, thread]);
+  }, [draft, sending, recipientId, conversationId, thread]);
 
   if (thread.loading && !thread.data) return <Loading />;
 
