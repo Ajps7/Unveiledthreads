@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Unveiled Threads",
+    "slug": "unveiled-threads",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "unveiledthreads",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#050505",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#050505"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "uk.co.unveiledthreads.app"
+    },
+    "android": {
+      "package": "uk.co.unveiledthreads.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#050505"
+      }
+    },
+    "extra": {
+      "apiBaseUrl": "https://unveiledthreads.co.uk",
+      "webBaseUrl": "https://unveiledthreads.co.uk"
+    }
+  }
+}
