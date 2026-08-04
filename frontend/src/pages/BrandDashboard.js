@@ -471,18 +471,24 @@ export default function BrandDashboard() {
                     <span className={`text-xs uppercase tracking-wider px-2 py-1 ${
                       order.shipping_status === 'delivered' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
                       order.shipping_status === 'shipped' || order.shipping_status === 'in_transit' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30' :
+                      order.status === 'preorder_paid' ? 'bg-[#39FF14]/10 text-[#39FF14] border border-[#39FF14]/30' :
                       order.status === 'paid' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' :
                       'bg-[#9CA3AF]/10 text-[#9CA3AF] border border-[#9CA3AF]/30'
-                    }`}>
+                    }`} data-testid={`brand-order-status-${order.id}`}>
                       {order.shipping_status === 'delivered' ? 'Delivered' :
                        order.shipping_status === 'shipped' ? 'Shipped' :
                        order.shipping_status === 'in_transit' ? 'In Transit' :
+                       order.status === 'preorder_paid' ? (
+                         order.preorder_ship_date
+                           ? `Pre-order — awaiting dispatch (ships by ${order.preorder_ship_date})`
+                           : 'Pre-order — awaiting dispatch'
+                       ) :
                        order.status === 'paid' ? 'Needs Shipping' : order.status}
                     </span>
                   </div>
 
                   {/* Ship action for paid orders without tracking */}
-                  {order.status === 'paid' && !order.tracking_number && (
+                  {(order.status === 'paid' || order.status === 'preorder_paid') && !order.tracking_number && (
                     <ShipOrderForm orderId={order.id} onShipped={fetchBrandData} />
                   )}
 

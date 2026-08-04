@@ -14,7 +14,7 @@ async def create_review(review: ReviewCreate, request: Request):
         raise HTTPException(status_code=404, detail="Order not found")
     if order["buyer_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not your order")
-    if order.get("status") != "paid":
+    if order.get("status") not in ("paid", "preorder_paid"):
         raise HTTPException(status_code=400, detail="Order must be paid before reviewing")
     if order.get("reviewed"):
         raise HTTPException(status_code=400, detail="Already reviewed this order")

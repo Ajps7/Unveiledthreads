@@ -92,7 +92,10 @@ export default function MyOrders() {
   const [orderDisputes, setOrderDisputes] = useState({}); // { order_id: dispute|null }
 
   const eligibleForDispute = (order) => {
-    if (order.status !== 'paid') return false;
+    // Pre-order (`preorder_paid`) orders are eligible for the same buyer-protection
+    // dispute window as in-stock (`paid`) orders — pre-order buyers need this
+    // safeguard more, not less.
+    if (order.status !== 'paid' && order.status !== 'preorder_paid') return false;
     if (order.shipping_status === 'delivered') return false;
     if (!order.created_at) return false;
     const days = (Date.now() - new Date(order.created_at).getTime()) / (1000 * 60 * 60 * 24);
@@ -239,11 +242,16 @@ export default function MyOrders() {
                     <div className="flex items-center gap-3 mb-1">
                       <h3 className="text-white font-bold">{order.product_name}</h3>
                       <span className={`text-xs uppercase tracking-wider px-2 py-0.5 ${
+                        order.status === 'preorder_paid' ? 'bg-[#39FF14]/10 text-[#39FF14] border border-[#39FF14]/30' :
                         order.status === 'paid' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
                         order.status === 'initiated' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' :
                         'bg-[#9CA3AF]/10 text-[#9CA3AF] border border-[#9CA3AF]/30'
-                      }`}>
-                        {order.status === 'paid' ? 'Paid' : order.status}
+                      }`} data-testid={`buyer-order-status-${order.id}`}>
+                        {order.status === 'preorder_paid' ? (
+                          order.preorder_ship_date
+                            ? `Pre-order — ships by ${order.preorder_ship_date}`
+                            : 'Pre-order'
+                        ) : order.status === 'paid' ? 'Paid' : order.status}
                       </span>
                     </div>
                     <p className="text-sm text-[#9CA3AF]">
@@ -255,7 +263,7 @@ export default function MyOrders() {
                       <p className="text-white font-bold">£{order.total_charged?.toFixed(2) || order.price?.toFixed(2)}</p>
                       <p className="text-xs text-[#9CA3AF]">incl. fees & shipping</p>
                     </div>
-                    {order.status === 'paid' && !order.reviewed && (
+                    {(order.status === 'paid' || order.status === 'preorder_paid') && !order.reviewed && (
                       <Button
                         className="btn-primary text-xs py-1 px-3"
                         onClick={(e) => {
@@ -275,7 +283,7 @@ export default function MyOrders() {
                 </div>
 
                 {/* Expanded - Shipping Timeline */}
-                {expandedOrder === order.id && order.status === 'paid' && (
+                {expandedOrder === order.id && (order.status === 'paid' || order.status === 'preorder_paid') && (
                   <div className="px-4 pb-4 border-t border-white/5 pt-4">
                     <div className="flex items-center gap-2 mb-4">
                       <Truck className="w-5 h-5 text-[#39FF14]" />

@@ -30,6 +30,11 @@ async def create_product(product: ProductCreate, request: Request):
         "gender": product.gender,
         "condition": product.condition,
         "fit": product.fit,
+        # Pre-order (Model A). preorder_ship_date is stored as an ISO string
+        # so it's JSON-serialisable end-to-end without a datetime cast.
+        "is_preorder": product.is_preorder,
+        "preorder_ship_date": product.preorder_ship_date.isoformat() if product.preorder_ship_date else None,
+        "preorder_limit": product.preorder_limit,
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.products.insert_one(product_doc)
@@ -184,7 +189,23 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
         raise HTTPException(status_code=403, detail="Not authorized to edit this product")
     
     update_fields = payload.model_dump(exclude_unset=True)
-    
+
+    # preorder_ship_date is stored as an ISO string; convert here so callers
+    # sending a JSON date get consistent persistence.
+    if "preorder_ship_date" in update_fields and update_fields["preorder_ship_date"] is not None:
+        update_fields["preorder_ship_date"] = update_fields["preorder_ship_date"].isoformat()
+
+    # Cross-field guard: if the update is turning is_preorder ON, the product
+    # (post-merge) must still have a future preorder_ship_date.
+    turning_on = update_fields.get("is_preorder") is True
+    if turning_on:
+        effective_ship_date = update_fields.get("preorder_ship_date") or product.get("preorder_ship_date")
+        if not effective_ship_date:
+            raise HTTPException(
+                status_code=422,
+                detail="preorder_ship_date is required when enabling pre-order.",
+            )
+
     if update_fields:
         await db.products.update_one(
             {"_id": safe_object_id(product_id)},
@@ -210,7 +231,7 @@ async def admin_delete_brand(brand_id: str, request: Request):
     
     paid_orders = await db.orders.count_documents({
         "brand_id": brand_id,
-        "status": {"$in": ["paid", "shipped", "delivered"]},
+        "status": {"$in": SALE_STATUSES},
     })
     if paid_orders > 0:
         raise HTTPException(
@@ -262,7 +283,7 @@ async def admin_delete_product(product_id: str, request: Request):
     
     paid_orders = await db.orders.count_documents({
         "product_id": product_id,
-        "status": {"$in": ["paid", "shipped", "delivered"]},
+        "status": {"$in": SALE_STATUSES},
     })
     if paid_orders > 0:
         raise HTTPException(

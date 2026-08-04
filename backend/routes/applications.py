@@ -166,7 +166,7 @@ async def wipe_demo_data(request: Request):
     
     # Refuse to nuke if there are any real paid orders — protects accidental data loss
     paid_order_count = await db.orders.count_documents(
-        {"status": {"$in": ["paid", "shipped", "delivered"]}}
+        {"status": {"$in": SALE_STATUSES}}
     )
     if paid_order_count > 0:
         raise HTTPException(

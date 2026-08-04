@@ -31,7 +31,7 @@ async def send_low_stock_digests() -> list:
             continue
         pids = [str(p["_id"]) for p in low_stock]
         pipeline = [
-            {"$match": {"brand_id": brand_id, "status": "paid", "product_id": {"$in": pids}, "created_at": {"$gte": sales_window}}},
+            {"$match": {"brand_id": brand_id, "status": {"$in": SALE_STATUSES}, "product_id": {"$in": pids}, "created_at": {"$gte": sales_window}}},
             {"$group": {"_id": "$product_id", "count": {"$sum": 1}}},
         ]
         sold = {d["_id"]: d["count"] async for d in db.orders.aggregate(pipeline)}
@@ -135,7 +135,7 @@ async def send_abandoned_checkout_emails() -> list:
         paid = await db.orders.find_one({
             "buyer_id": order["buyer_id"],
             "product_id": order["product_id"],
-            "status": "paid",
+            "status": {"$in": SALE_STATUSES},
         })
         if paid:
             await db.orders.update_one({"_id": order["_id"]}, {"$set": {"abandoned_email_sent": True}})

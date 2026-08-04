@@ -13,10 +13,25 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     product = await db.products.find_one({"_id": ObjectId(purchase.product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    if product["stock"] <= 0:
-        raise HTTPException(status_code=400, detail="Product is out of stock")
-    
+
+    is_preorder = bool(product.get("is_preorder"))
+
+    # Stock rules diverge for pre-orders. Non-pre-order behaviour is unchanged.
+    if not is_preorder:
+        if product["stock"] <= 0:
+            raise HTTPException(status_code=400, detail="Product is out of stock")
+    else:
+        # Pre-order: no stock check. Instead, enforce preorder_limit atomically
+        # so a burst of concurrent buyers can't oversell the reserved run.
+        preorder_limit = product.get("preorder_limit")
+        if preorder_limit is not None:
+            current_preorders = await db.orders.count_documents({
+                "product_id": str(product["_id"]),
+                "status": {"$in": ["preorder_paid", "shipped", "delivered", "initiated"]},
+            })
+            if current_preorders >= preorder_limit:
+                raise HTTPException(status_code=409, detail="Pre-order sold out.")
+
     if purchase.size not in product["sizes"]:
         raise HTTPException(status_code=400, detail="Selected size is not available")
     
@@ -145,6 +160,10 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "courier": None,
         "shipping_updates": [],
         "reviewed": False,
+        # Pre-order flags (copied from product at checkout so the buyer's
+        # commitment is preserved even if the seller later edits the product).
+        "is_preorder": is_preorder,
+        "preorder_ship_date": product.get("preorder_ship_date") if is_preorder else None,
         "created_at": datetime.now(timezone.utc)
     }
     await db.orders.insert_one(order_doc)
@@ -172,6 +191,8 @@ def _order_receipt(order: dict) -> dict:
         "credit_applied": order.get("credit_applied") or 0,
         "shipping_cost": order.get("shipping_cost"),
         "total_charged": order.get("total_charged"),
+        "is_preorder": bool(order.get("is_preorder")),
+        "preorder_ship_date": order.get("preorder_ship_date"),
     }
 
 async def send_order_receipt_email(order: dict):
@@ -189,6 +210,24 @@ async def send_order_receipt_email(order: dict):
         f'<tr><td style="{row_style}">Referral credit</td><td style="{val_style}">-£{credit:.2f}</td></tr>'
         if credit > 0 else ""
     )
+
+    # Pre-order banner — added ONLY when the order is a pre-order so existing
+    # in-stock receipts are unchanged. Escapes every user-provided value.
+    preorder_block = ""
+    if order.get("is_preorder"):
+        ship_by = esc(order.get("preorder_ship_date") or "the confirmed date")
+        preorder_block = f"""
+            <div style="border:1px solid #39FF14;background:#0A0A0A;padding:16px;margin:0 0 20px;">
+                <p style="color:#39FF14;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 6px;">
+                    Pre-order — ships by {ship_by}
+                </p>
+                <p style="color:#9CA3AF;font-size:13px;line-height:1.6;margin:0;">
+                    You've been charged today. {esc(order.get('brand_name', ''))} will dispatch your item by
+                    <strong style="color:#fff;">{ship_by}</strong>. If it hasn't shipped by then you're covered by
+                    Buyer Protection and can request a full refund.
+                </p>
+            </div>
+        """
     html = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
         <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
@@ -198,6 +237,7 @@ async def send_order_receipt_email(order: dict):
             You just supported an independent UK brand. <strong style="color:#fff;">{esc(order.get('brand_name', ''))}</strong> has been
             notified and will ship your order soon — track it any time from your Orders page.
         </p>
+        {preorder_block}
         <div style="background:#0A0A0A;border:1px solid #27272A;padding:20px;margin:24px 0;">
             <p style="color:#9CA3AF;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 12px;">Receipt</p>
             <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{esc(order.get('product_name', ''))}</p>
@@ -240,9 +280,16 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
     """Idempotent order settlement: atomically claims the order, deducts stock,
     grants referral credit, consumes applied credit, notifies the brand and
     emails the buyer's receipt. Safe to call from the buyer poll AND the
-    reconciliation sweep — only the first caller settles."""
+    reconciliation sweep — only the first caller settles.
+
+    Pre-order path: status is set to `preorder_paid` (distinguishable from
+    in-stock `paid` everywhere), no stock is decremented, and the oversell
+    guard is skipped. Everything else — receipts, referral credit, brand
+    notification — runs identically."""
     now = datetime.now(timezone.utc)
-    update = {"status": "paid", "stock_deducted": True, "settled_at": now}
+    is_preorder = bool(order.get("is_preorder"))
+    settled_status = "preorder_paid" if is_preorder else "paid"
+    update = {"status": settled_status, "stock_deducted": True, "settled_at": now}
     if payment_intent_id:
         update["payment_intent_id"] = payment_intent_id
     claim = await db.orders.update_one(
@@ -252,26 +299,28 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
     if claim.modified_count == 0:
         return False
     
-    # Oversell guard: only decrement if stock is still available
-    stock_result = await db.products.update_one(
-        {"_id": ObjectId(order["product_id"]), "stock": {"$gt": 0}},
-        {"$inc": {"stock": -1}}
-    )
-    if stock_result.modified_count == 0:
-        # Oversold — another buyer got the last unit. Flag for manual refund.
-        await db.orders.update_one({"_id": order["_id"]}, {"$set": {"oversold": True}})
-        logger.error(
-            f"OVERSOLD: order settled but no stock remained — manual refund required "
-            f"(order={order['_id']} product={order['product_id']})"
+    if not is_preorder:
+        # Oversell guard: only decrement if stock is still available.
+        # Skipped for pre-orders — there is no live stock to decrement.
+        stock_result = await db.products.update_one(
+            {"_id": ObjectId(order["product_id"]), "stock": {"$gt": 0}},
+            {"$inc": {"stock": -1}}
         )
-        await create_notification(
-            user_id=None,
-            brand_id=order["brand_id"],
-            notification_type="oversold_order",
-            title="Action needed: oversold order",
-            message=f"Order #{str(order['_id'])[-6:]} for {order['product_name']} settled after the last unit had already sold — the item sold twice. Please arrange a refund for this order via support.",
-            metadata={"order_id": str(order["_id"]), "product_id": order["product_id"]},
-        )
+        if stock_result.modified_count == 0:
+            # Oversold — another buyer got the last unit. Flag for manual refund.
+            await db.orders.update_one({"_id": order["_id"]}, {"$set": {"oversold": True}})
+            logger.error(
+                f"OVERSOLD: order settled but no stock remained — manual refund required "
+                f"(order={order['_id']} product={order['product_id']})"
+            )
+            await create_notification(
+                user_id=None,
+                brand_id=order["brand_id"],
+                notification_type="oversold_order",
+                title="Action needed: oversold order",
+                message=f"Order #{str(order['_id'])[-6:]} for {order['product_name']} settled after the last unit had already sold — the item sold twice. Please arrange a refund for this order via support.",
+                metadata={"order_id": str(order["_id"]), "product_id": order["product_id"]},
+            )
     
     # Referral: credit the referrer on the buyer's first paid order (atomic flag flip).
     # Gated behind REFERRALS_ENABLED — no credits accrue until the programme launches.
@@ -374,7 +423,7 @@ async def get_order_status(session_id: str, request: Request):
     if order["buyer_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    if order.get("status") == "paid":
+    if order.get("status") in ("paid", "preorder_paid"):
         return {"status": "complete", "payment_status": "paid", "already_processed": True, "order": _order_receipt(order)}
     
     api_key = os.environ.get("STRIPE_API_KEY")

@@ -32,6 +32,10 @@ export default function AddProduct() {
     gender: 'unisex',
     condition: 'new',
     fit: '',
+    // Pre-order
+    is_preorder: false,
+    preorder_ship_date: '',
+    preorder_limit: '',
   });
 
   useEffect(() => {
@@ -67,7 +71,15 @@ export default function AddProduct() {
     if (!form.category) { setError('Category is required'); return; }
     if (form.sizes.length === 0) { setError('Select at least one size'); return; }
     if (form.images.length === 0) { setError('Upload at least one photo'); return; }
-    if (!form.stock || parseInt(form.stock) < 0) { setError('Stock quantity is required'); return; }
+    // Pre-order allows stock=0 so we only enforce presence, not > 0.
+    if (form.stock === '' || parseInt(form.stock) < 0) { setError('Stock quantity is required (0 is allowed for pre-orders)'); return; }
+    if (form.is_preorder) {
+      if (!form.preorder_ship_date) { setError('Pick an expected ship date for the pre-order'); return; }
+      const shipDate = new Date(form.preorder_ship_date);
+      if (isNaN(shipDate.getTime()) || shipDate <= new Date()) {
+        setError('Pre-order ship date must be in the future'); return;
+      }
+    }
 
     setSubmitting(true);
     try {
@@ -87,6 +99,9 @@ export default function AddProduct() {
           gender: form.gender,
           condition: form.condition,
           fit: form.fit || null,
+          is_preorder: form.is_preorder,
+          preorder_ship_date: form.is_preorder && form.preorder_ship_date ? form.preorder_ship_date : null,
+          preorder_limit: form.is_preorder && form.preorder_limit ? parseInt(form.preorder_limit) : null,
         },
         { withCredentials: true }
       );
@@ -147,6 +162,65 @@ export default function AddProduct() {
           <ProductSizes sizes={form.sizes} onToggle={toggleSize} />
 
           <ProductPricing form={form} setForm={setForm} />
+
+          {/* Pre-order controls — MVP pre-order feature */}
+          <div className="border border-white/10 bg-[#0A0A0A] p-6 mb-6" data-testid="preorder-section">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_preorder}
+                onChange={(e) => setForm({ ...form, is_preorder: e.target.checked })}
+                className="w-5 h-5 accent-[#39FF14]"
+                data-testid="is-preorder-checkbox"
+              />
+              <div>
+                <h2 className="text-lg font-bold text-white uppercase" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+                  Sell as pre-order
+                </h2>
+                <p className="text-xs text-[#9CA3AF] mt-1">
+                  Charge buyers now, ship when your stock lands. You&apos;ll receive payouts on Unveiled Threads&apos; standard 7-day rolling delay for buyer protection.
+                </p>
+              </div>
+            </label>
+
+            {form.is_preorder && (
+              <div className="grid md:grid-cols-2 gap-5 mt-5">
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
+                    Expected ship date *
+                  </label>
+                  <input
+                    type="date"
+                    value={form.preorder_ship_date}
+                    onChange={(e) => setForm({ ...form, preorder_ship_date: e.target.value })}
+                    className="input-brutalist w-full"
+                    min={new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                    data-testid="preorder-ship-date-input"
+                  />
+                  <p className="text-xs text-[#9CA3AF] mt-1">
+                    Buyers see this in your listing. Ship on time or they can refund.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
+                    Pre-order cap (optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.preorder_limit}
+                    onChange={(e) => setForm({ ...form, preorder_limit: e.target.value })}
+                    className="input-brutalist w-full"
+                    placeholder="e.g. 50 — leave blank for uncapped"
+                    data-testid="preorder-limit-input"
+                  />
+                  <p className="text-xs text-[#9CA3AF] mt-1">
+                    Cap the total pre-orders you&apos;ll accept for this run.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="flex gap-4">
             <Button

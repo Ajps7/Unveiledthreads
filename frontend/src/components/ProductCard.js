@@ -46,6 +46,15 @@ export default function ProductCard({ product, isWishlisted = false, onWishlistT
           </div>
         )}
 
+        {product.is_preorder && (
+          <span
+            className="absolute top-3 left-3 z-10 bg-[#39FF14] text-black text-[10px] font-bold px-2 py-1 uppercase tracking-wider"
+            data-testid={`preorder-badge-${product.id}`}
+          >
+            Pre-order
+          </span>
+        )}
+
         {/* Wishlist heart */}
         {showWishlist && (
           <button
@@ -67,6 +76,11 @@ export default function ProductCard({ product, isWishlisted = false, onWishlistT
         <h3 className="text-white font-medium mb-2 line-clamp-1 group-hover:text-[#39FF14] transition-colors">
           {product.name}
         </h3>
+        {product.is_preorder && product.preorder_ship_date && (
+          <p className="text-[10px] text-[#39FF14] mb-1" data-testid={`preorder-ship-by-${product.id}`}>
+            Ships by {product.preorder_ship_date}
+          </p>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-[#C0C0C0] font-bold">
             £{product.price.toFixed(2)}

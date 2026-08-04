@@ -18,7 +18,7 @@ DISPUTE_ELIGIBILITY_DAYS = int(os.environ.get("DISPUTE_ELIGIBILITY_DAYS", "14"))
 
 def _order_dispute_eligibility(order: dict) -> Tuple[bool, str]:
     """Return (eligible, reason_or_message)."""
-    if order.get("status") != "paid":
+    if order.get("status") not in ("paid", "preorder_paid"):
         return False, "Order has not been paid"
     paid_at = order.get("created_at")
     if not isinstance(paid_at, datetime):
@@ -305,7 +305,7 @@ async def get_admin_stats(request: Request):
     total_orders = await db.orders.count_documents({})
     oversold_orders = await db.orders.count_documents({"oversold": True})
     total_revenue = 0
-    pipeline = [{"$match": {"status": "paid"}}, {"$group": {"_id": None, "total": {"$sum": "$platform_fee"}}}]
+    pipeline = [{"$match": {"status": {"$in": SALE_STATUSES}}}, {"$group": {"_id": None, "total": {"$sum": "$platform_fee"}}}]
     async for doc in db.orders.aggregate(pipeline):
         total_revenue = doc["total"]
     

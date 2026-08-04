@@ -135,7 +135,7 @@ async def ship_order(order_id: str, ship_data: ShipOrderRequest, request: Reques
         raise HTTPException(status_code=404, detail="Order not found")
     if order["brand_id"] != str(brand["_id"]):
         raise HTTPException(status_code=403, detail="Not your order")
-    if order.get("status") != "paid":
+    if order.get("status") not in ("paid", "preorder_paid"):
         raise HTTPException(status_code=400, detail="Order must be paid before shipping")
     
     now = datetime.now(timezone.utc)

@@ -10,13 +10,13 @@ import asyncio
 import requests as http_requests
 import resend
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, EmailStr, field_validator, model_validator
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
 import json
 import html
 from urllib.parse import quote
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import bcrypt
 import jwt
 from bson import ObjectId
@@ -209,6 +209,10 @@ class ProductCreate(BaseModel):
     gender: str = "unisex"
     condition: str = "new"
     fit: Optional[str] = Field(default=None, max_length=50)
+    # ---- Pre-order fields (Model A: charge now, ship later) ----
+    is_preorder: bool = False
+    preorder_ship_date: Optional[date] = None  # noqa: F821  (date imported below)
+    preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
 
     @field_validator("gender")
     @classmethod
@@ -223,6 +227,17 @@ class ProductCreate(BaseModel):
         if v not in CONDITIONS:
             raise ValueError(f"condition must be one of {CONDITIONS}")
         return v
+
+    @model_validator(mode="after")
+    def _validate_preorder(self):
+        # A pre-order product MUST commit to a future ship date. Skip on non-
+        # pre-order products so existing listings are unaffected.
+        if self.is_preorder:
+            if self.preorder_ship_date is None:
+                raise ValueError("preorder_ship_date is required when is_preorder is true")
+            if self.preorder_ship_date <= date.today():
+                raise ValueError("preorder_ship_date must be a future date")
+        return self
 
 
 class ProductUpdate(BaseModel):
@@ -239,6 +254,10 @@ class ProductUpdate(BaseModel):
     gender: Optional[str] = None
     condition: Optional[str] = None
     fit: Optional[str] = Field(default=None, max_length=50)
+    # ---- Pre-order fields ----
+    is_preorder: Optional[bool] = None
+    preorder_ship_date: Optional[date] = None  # noqa: F821
+    preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
 
     @field_validator("gender")
     @classmethod
@@ -253,6 +272,17 @@ class ProductUpdate(BaseModel):
         if v is not None and v not in CONDITIONS:
             raise ValueError(f"condition must be one of {CONDITIONS}")
         return v
+
+    @model_validator(mode="after")
+    def _validate_preorder(self):
+        # If the caller is turning ON pre-order, they must also send a future
+        # ship date in the same payload (or already have one saved — see route
+        # handler which reads the current doc). We can only validate what we
+        # see here: if is_preorder=True and a ship date is provided, it must
+        # be future; if it's provided at all it must be future.
+        if self.preorder_ship_date is not None and self.preorder_ship_date <= date.today():
+            raise ValueError("preorder_ship_date must be a future date")
+        return self
 
 
 class ReferralApplyRequest(BaseModel):
@@ -384,6 +414,24 @@ REFERRAL_CREDIT = 5.0  # £5 credit
 
 # First N approved brands are permanently marked as Founding Brands
 FOUNDING_BRAND_LIMIT = int(os.environ.get("FOUNDING_BRAND_LIMIT", "40"))
+
+# ---- Payout delay (buyer protection) ----
+# Applied at the Stripe Connect account level, so it covers EVERY order —
+# in-stock and pre-order alike. Buffer between charge and payout gives us a
+# window to intervene on chargebacks / non-shipment before funds are on
+# the brand's bank statement. Kept in one place so we can tune later.
+STANDARD_PAYOUT_DELAY_DAYS = int(os.environ.get("STANDARD_PAYOUT_DELAY_DAYS", "7"))
+# NOTE: true per-order payout timing tied to each pre-order's ship date
+# would require separate charges & transfers (funds held on the platform),
+# which changes the money-custody model and has regulatory implications.
+# Do NOT implement that. The account-level delay above is the approved
+# approach for pre-order protection. This constant exists so a future
+# reviewer knows the number's intent, not for use in code paths today.
+PREORDER_PAYOUT_DELAY_DAYS = int(os.environ.get("PREORDER_PAYOUT_DELAY_DAYS", "7"))
+
+# ---- Order statuses that count as a settled sale ----
+# preorder_paid is included so pre-order revenue is NOT invisible in analytics.
+SALE_STATUSES = ["paid", "preorder_paid", "shipped", "delivered"]
 
 # Forbidden content patterns for message surveillance
 import re
@@ -841,6 +889,19 @@ async def _finalise_approval(application_id, application, origin_url):
                 business_profile={
                     "name": application["brand_name"],
                     "product_description": application.get("description") or "Independent UK clothing brand",
+                },
+                # Rolling STANDARD_PAYOUT_DELAY_DAYS buffer between charge and
+                # payout to the brand's bank — buyer-protection safeguard
+                # applied to every order, including pre-orders (see
+                # PREORDER_PAYOUT_DELAY_DAYS note in core.py for why we don't
+                # do per-order delays instead).
+                settings={
+                    "payouts": {
+                        "schedule": {
+                            "interval": "daily",
+                            "delay_days": STANDARD_PAYOUT_DELAY_DAYS,
+                        }
+                    }
                 },
                 metadata={"brand_id": brand_id, "user_id": user_id_str},
             )

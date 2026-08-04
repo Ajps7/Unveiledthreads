@@ -60,10 +60,10 @@ async def get_brand_analytics(request: Request, days: int = 30):
     async for doc in db.product_views.aggregate(views_pipeline):
         daily_views.append({"date": doc["_id"], "views": doc["count"]})
     
-    # Orders and revenue
+    # Orders and revenue — include preorder_paid so pre-order revenue isn't invisible.
     orders = await db.orders.find({
         "brand_id": brand_id,
-        "status": "paid",
+        "status": {"$in": SALE_STATUSES},
         "created_at": {"$gte": start_date}
     }).to_list(500)
     
@@ -125,7 +125,7 @@ async def get_brand_analytics(request: Request, days: int = 30):
     })
     prior_orders_list = await db.orders.find({
         "brand_id": brand_id,
-        "status": "paid",
+        "status": {"$in": SALE_STATUSES},
         "created_at": {"$gte": prior_start, "$lt": prior_end}
     }).to_list(500)
     prior_orders = len(prior_orders_list)
