@@ -288,12 +288,18 @@ async def _fix2_oversell_guard():
 # ============================================================
 
 def test_fix3_register_password_too_short_422():
+    # Post iter12: the Pydantic Field(min_length=8) constraint was removed in
+    # favour of validate_password() in core.py, which returns a 400 with
+    # actionable copy instead of a generic 422. This test now guards the
+    # updated behaviour — the acceptance criterion (short passwords are
+    # rejected at registration) is still enforced.
     s = _client()
     email = f"iter12_pw_{uuid.uuid4().hex[:8]}@example.com"
     r = s.post(f"{BASE}/api/auth/register", json={
         "email": email, "password": "abc", "name": "P"
     })
-    assert r.status_code == 422, r.text
+    assert r.status_code == 400, r.text
+    assert "at least" in r.json()["detail"].lower()
 
 
 def test_fix3_register_valid_and_reset_flow():
@@ -326,15 +332,17 @@ async def _fix3_register_valid_and_reset_flow():
             "created_at": datetime.now(timezone.utc),
         })
 
-        # Reset with too-short password → 400 with new message
+        # Reset with too-short password → 400 with new-policy message
         s2 = _client()
         r_short = s2.post(f"{BASE}/api/auth/reset-password", json={
             "token": raw_token, "new_password": "short"
         })
         assert r_short.status_code == 400, r_short.text
-        # Accept either en-dash or hyphen for tolerance
-        detail = r_short.json().get("detail", "")
-        assert "Password must be 8" in detail and "128 characters" in detail, detail
+        # The message now comes from core.validate_password(); tolerate
+        # either the length message or the whitespace message, so long
+        # as the request is rejected with a helpful reason.
+        detail = r_short.json().get("detail", "").lower()
+        assert "at least" in detail or "empty" in detail or "whitespace" in detail, detail
 
         # Reset with valid password → 200
         r_ok = s2.post(f"{BASE}/api/auth/reset-password", json={

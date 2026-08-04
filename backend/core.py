@@ -27,15 +27,41 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+# Number of TRUSTED reverse proxies in front of this app. In the standard
+# K8s ingress → backend setup that's 1. Set higher via env if you sit
+# behind a stack like Cloudflare → NGINX → app. Under-configuring is safer
+# than over-configuring (falls back to socket IP), so default = 1.
+TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "1"))
+
+
 def _client_ip(request):
-    """Resolve the real client IP through the Kubernetes ingress proxy.
-    Falls back to socket IP when no forwarding header is present."""
+    """Resolve the real client IP for rate-limiting.
+
+    X-Forwarded-For is a list a proxy APPENDS to as it forwards — so the
+    LEFTMOST entries are client-supplied and spoofable, and only the
+    rightmost `TRUSTED_PROXY_HOPS` entries were written by proxies we
+    trust. The client's real IP is the entry the outermost trusted proxy
+    observed, i.e. `parts[-TRUSTED_PROXY_HOPS]`.
+
+    Indexing from the left (`.split(',')[0]`) is the classic bypass: an
+    attacker just sets `X-Forwarded-For: <random>` and gets a fresh
+    rate-limit bucket every request. Never do that.
+    """
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
-        return fwd.split(",")[0].strip()
+        parts = [p.strip() for p in fwd.split(",") if p.strip()]
+        if len(parts) >= TRUSTED_PROXY_HOPS:
+            return parts[-TRUSTED_PROXY_HOPS]
+        # Header present but shorter than expected — a proxy hop is
+        # missing or the deployment topology changed. Fall through to
+        # socket IP rather than trust an attacker-supplied value.
+
     real_ip = request.headers.get("x-real-ip")
-    if real_ip:
+    if real_ip and TRUSTED_PROXY_HOPS >= 1:
+        # Only trust X-Real-IP when we know a proxy set it, i.e. when we
+        # expect at least one hop in front of us. Same reasoning as above.
         return real_ip.strip()
+
     return get_remote_address(request)
 
 # Rate limiter (uses real client IP via X-Forwarded-For). Routes opt-in via @limiter.limit.

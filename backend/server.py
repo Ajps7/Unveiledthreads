@@ -24,6 +24,18 @@ import routes.referrals  # noqa: E402,F401
 import routes.messaging  # noqa: E402,F401
 import routes.community  # noqa: E402,F401
 
+# Test-only rate-limiter reset — gated by ENVIRONMENT so it can never
+# exist on production. Used by the pytest suite to isolate rate-limit
+# buckets between tests now that _client_ip resolves from the RIGHT of
+# X-Forwarded-For (i.e. header spoofing no longer creates fresh buckets).
+if os.environ.get("ENVIRONMENT", "development").strip().lower() != "production":
+    from fastapi import Request as _Request  # noqa: E402
+
+    @api_router.post("/__test/reset-limiter")
+    async def _reset_limiter_for_tests(request: _Request):  # noqa: ARG001
+        limiter.reset()
+        return {"ok": True}
+
 from routes.engagement import low_stock_digest_loop, abandoned_checkout_loop  # noqa: E402
 from routes.orders import order_reconciliation_loop  # noqa: E402
 

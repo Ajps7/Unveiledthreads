@@ -19,11 +19,13 @@ import requests
 # ---------- shared helpers ----------
 
 def _fake_ip() -> str:
-    return f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+    # DEPRECATED — kept for API compatibility; header spoofing no longer
+    # affects rate-limit keys since _client_ip indexes from the right.
+    return "10.0.0.1"
 
 
 def _headers() -> dict:
-    return {"X-Forwarded-For": _fake_ip()}
+    return {}
 
 
 def _api_url() -> str:

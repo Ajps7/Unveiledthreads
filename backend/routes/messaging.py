@@ -56,6 +56,7 @@ async def get_messages(conversation_id: str, request: Request):
     return result
 
 @api_router.post("/messages/send")
+@limiter.limit("20/minute")
 async def send_message(msg: MessageSend, request: Request):
     user = await get_current_user(request)
     
@@ -92,8 +93,10 @@ async def send_message(msg: MessageSend, request: Request):
             "created_at": now
         })
         conversation_id = str(convo_result.inserted_id)
+        last_email_at = None  # brand-new conversation → first message always emails
     else:
         conversation_id = str(convo["_id"])
+        last_email_at = convo.get("last_email_at")
         await db.conversations.update_one(
             {"_id": convo["_id"]},
             {"$set": {"last_message": msg.content[:100], "last_message_at": now}}
@@ -110,16 +113,39 @@ async def send_message(msg: MessageSend, request: Request):
         "created_at": now
     }
     result = await db.messages.insert_one(msg_doc)
-    
-    # Notify recipient
+
+    # ---- Conversation-level email throttle ----
+    # A burst of 50 messages should produce 50 in-app notifications and ONE
+    # email, not 50. In-app is always delivered (bell badge, sidebar);
+    # email is suppressed if we've already emailed this conversation
+    # within MESSAGE_EMAIL_COOLDOWN_MINUTES. This is the durable fix — it
+    # holds independently of the IP-based rate limiter above.
+    cooldown_minutes = int(os.environ.get("MESSAGE_EMAIL_COOLDOWN_MINUTES", "15"))
+    should_email = True
+    if last_email_at:
+        # MongoDB may return tz-naive datetimes even when we insert tz-aware
+        # ones; normalise so the subtraction never raises.
+        if last_email_at.tzinfo is None:
+            last_email_at = last_email_at.replace(tzinfo=timezone.utc)
+        elapsed = (now - last_email_at).total_seconds() / 60.0
+        if elapsed < cooldown_minutes:
+            should_email = False
+
     await create_notification(
         user_id=msg.recipient_id,
         brand_id=None,
         notification_type="new_message",
         title=f"New message from {user['name']}",
         message=msg.content[:100],
-        metadata={"conversation_id": conversation_id}
+        metadata={"conversation_id": conversation_id},
+        send_email=should_email,
     )
+
+    if should_email:
+        await db.conversations.update_one(
+            {"_id": safe_object_id(conversation_id)},
+            {"$set": {"last_email_at": now}},
+        )
     
     msg_doc.pop("_id", None)
     msg_doc["id"] = str(result.inserted_id)

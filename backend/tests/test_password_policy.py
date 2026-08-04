@@ -17,15 +17,19 @@ import requests
 
 
 def _fake_ip() -> str:
-    """Generate a unique IP per request so slowapi's per-IP rate limits don't
-    interfere with the test run. The backend resolves clients via
-    X-Forwarded-For (see core._client_ip)."""
-    import random
-    return f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+    """DEPRECATED: kept for signature compatibility only.
+
+    Since _client_ip now indexes X-Forwarded-For from the RIGHT, the value
+    of this header no longer affects the rate-limit key. The autouse
+    fixture in conftest.py resets the limiter between tests instead.
+    """
+    return "10.0.0.1"
 
 
 def _headers() -> dict:
-    return {"X-Forwarded-For": _fake_ip()}
+    # Empty — no header spoofing is possible any more. Kept as a helper so
+    # existing test call-sites keep working without churn.
+    return {}
 
 
 def _api_url() -> str:
@@ -164,7 +168,6 @@ def fresh_session():
     assert r.status_code == 200, r.text
 
     s = requests.Session()
-    s.headers.update({"X-Forwarded-For": _fake_ip()})
     r = s.post(f"{API}/api/auth/login", json={"email": email, "password": password}, timeout=15)
     assert r.status_code == 200, r.text
     return s, email, password

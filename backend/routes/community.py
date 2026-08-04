@@ -14,6 +14,7 @@ class CommentCreate(BaseModel):
     content: str
 
 @api_router.post("/community/posts")
+@limiter.limit("10/minute")
 async def create_community_post(post: CommunityPostCreate, request: Request):
     user = await get_current_user(request)
     
@@ -108,6 +109,7 @@ async def get_post_comments(post_id: str):
     return result
 
 @api_router.post("/community/posts/{post_id}/comments")
+@limiter.limit("20/minute")
 async def add_post_comment(post_id: str, comment: CommentCreate, request: Request):
     user = await get_current_user(request)
     
@@ -169,6 +171,7 @@ async def get_product_comments(product_id: str):
     return result
 
 @api_router.post("/products/{product_id}/comments")
+@limiter.limit("20/minute")
 async def add_product_comment(product_id: str, comment: CommentCreate, request: Request):
     user = await get_current_user(request)
     
