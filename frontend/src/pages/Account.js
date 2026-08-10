@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import axios from 'axios';
-import { ArrowLeft, Download, Trash2, ShieldAlert, Mail, User as UserIcon, KeyRound } from 'lucide-react';
+import { ArrowLeft, Download, Trash2, ShieldAlert, Mail, User as UserIcon, KeyRound, AtSign } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -25,6 +25,32 @@ export default function Account() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
+
+  // Change-email state
+  const [newEmail, setNewEmail] = useState('');
+  const [emailChangePassword, setEmailChangePassword] = useState('');
+  const [emailChangeSubmitting, setEmailChangeSubmitting] = useState(false);
+  const [emailChangeSent, setEmailChangeSent] = useState(false);
+
+  const handleChangeEmail = async (e) => {
+    e.preventDefault();
+    setEmailChangeSubmitting(true);
+    try {
+      await axios.post(
+        `${API}/api/auth/change-email/request`,
+        { new_email: newEmail.trim(), current_password: emailChangePassword },
+        { withCredentials: true }
+      );
+      setEmailChangeSent(true);
+      setEmailChangePassword('');
+      toast.success('Check your new inbox to confirm the change.');
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Could not request email change. Try again.');
+    } finally {
+      setEmailChangeSubmitting(false);
+    }
+  };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -156,6 +182,55 @@ export default function Account() {
               <dd className="text-[#39FF14] uppercase tracking-wider text-xs" data-testid="account-role">{user.role}</dd>
             </div>
           </dl>
+        </div>
+
+        {/* Change email */}
+        <div className="border border-white/10 bg-[#0F0F0F] p-6 mb-8" data-testid="change-email-section">
+          <div className="flex items-center gap-3 mb-3">
+            <AtSign className="w-5 h-5 text-[#39FF14]" />
+            <h2 className="text-lg font-bold text-white uppercase" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              Change email
+            </h2>
+          </div>
+          <p className="text-sm text-[#C0C0C0] leading-relaxed mb-4">
+            Update the email on your account. We&apos;ll send a link to your new address — nothing
+            changes until you click it. Your old address gets a heads-up email for security.
+          </p>
+          {emailChangeSent ? (
+            <div className="border border-[#39FF14]/30 bg-[#39FF14]/5 p-4 text-sm text-[#39FF14]" data-testid="change-email-sent">
+              Check your new inbox to confirm the change. The link expires in 1 hour.
+              <button type="button" className="ml-3 underline text-white/70 hover:text-white text-xs"
+                onClick={() => { setEmailChangeSent(false); setNewEmail(''); }}>Send another</button>
+            </div>
+          ) : (
+            <form onSubmit={handleChangeEmail} className="space-y-4">
+              <div>
+                <Label htmlFor="new-email" className="text-xs uppercase tracking-wider text-[#C0C0C0] mb-2 block">
+                  New email address
+                </Label>
+                <Input id="new-email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
+                  autoComplete="email" required
+                  className="bg-black border-white/10 text-white rounded-none focus:border-[#39FF14]"
+                  data-testid="new-email-input" />
+              </div>
+              <div>
+                <Label htmlFor="email-change-password" className="text-xs uppercase tracking-wider text-[#C0C0C0] mb-2 block">
+                  Current password
+                </Label>
+                <Input id="email-change-password" type="password" value={emailChangePassword}
+                  onChange={(e) => setEmailChangePassword(e.target.value)}
+                  autoComplete="current-password" required
+                  className="bg-black border-white/10 text-white rounded-none focus:border-[#39FF14]"
+                  data-testid="change-email-password-input" />
+              </div>
+              <Button type="submit" disabled={emailChangeSubmitting || !newEmail || !emailChangePassword}
+                className="bg-[#39FF14] text-black hover:bg-[#39FF14]/90 rounded-none font-bold uppercase tracking-wider text-sm disabled:opacity-40"
+                data-testid="change-email-submit">
+                <AtSign className="w-4 h-4 mr-2" />
+                {emailChangeSubmitting ? 'Sending link…' : 'Send verification link'}
+              </Button>
+            </form>
+          )}
         </div>
 
         {/* Change password */}

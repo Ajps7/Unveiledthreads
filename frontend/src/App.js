@@ -9,6 +9,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import VerifyEmailChange from "./pages/VerifyEmailChange";
 import Products from "./pages/Products";
 import ProductDetail from "./pages/ProductDetail";
 import Brands from "./pages/Brands";
@@ -45,6 +46,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email-change" element={<VerifyEmailChange />} />
             <Route path="/products" element={<Products />} />
             <Route path="/products/:id" element={<ProductDetail />} />
             <Route path="/brands" element={<Brands />} />

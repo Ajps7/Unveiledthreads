@@ -213,6 +213,13 @@ class ProductCreate(BaseModel):
     is_preorder: bool = False
     preorder_ship_date: Optional[date] = None  # noqa: F821  (date imported below)
     preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
+    # ---- Optional structured description (all backward-compatible) ----
+    # Empty/omitted fields are hidden entirely on the frontend — no dangling labels.
+    story: Optional[str] = Field(default=None, max_length=300)
+    details: Optional[List[str]] = Field(default=None, max_length=8)
+    materials: Optional[str] = Field(default=None, max_length=120)
+    fit_notes: Optional[str] = Field(default=None, max_length=200)
+    care: Optional[str] = Field(default=None, max_length=200)
 
     @field_validator("gender")
     @classmethod
@@ -227,6 +234,17 @@ class ProductCreate(BaseModel):
         if v not in CONDITIONS:
             raise ValueError(f"condition must be one of {CONDITIONS}")
         return v
+
+    @field_validator("details")
+    @classmethod
+    def _valid_details(cls, v):
+        if v is None:
+            return v
+        cleaned = [s.strip() for s in v if s and s.strip()]
+        for item in cleaned:
+            if len(item) > 120:
+                raise ValueError("Each detail bullet must be 120 characters or fewer")
+        return cleaned or None
 
     @model_validator(mode="after")
     def _validate_preorder(self):
@@ -517,6 +535,168 @@ def verify_image_magic_bytes(data: bytes, claimed_content_type: str) -> bool:
 
     prefixes = _IMAGE_MAGIC_BYTES[claimed_content_type]
     return any(data.startswith(p) for p in prefixes)
+
+
+# ================================================================
+# IMAGE MODERATION — inspects every image on a listing.
+# ================================================================
+# Strategy:
+#   1. ALWAYS run cheap server-side gates (magic bytes, decode with PIL,
+#      dimension cap). These never fail open — a corrupt image is refused.
+#   2. If IMAGE_MODERATION_PROVIDER is configured and reachable, ask the
+#      provider whether the image contains explicit/violent content and
+#      surface a pass/flagged verdict per image.
+#   3. If no provider is configured OR the call fails, we log a WARNING
+#      and mark the image as `unverified` (still stored, still visible,
+#      but flagged for admin review) — never silently pass.
+#
+# Provider dispatch is a single-env-var switch so we can swap between
+# providers later without touching call-sites. Currently supported:
+#   - IMAGE_MODERATION_PROVIDER=none   → skip external call (default)
+#   - IMAGE_MODERATION_PROVIDER=claude → Claude Haiku vision via
+#                                        emergentintegrations (uses
+#                                        EMERGENT_LLM_KEY, no extra key)
+IMAGE_MODERATION_PROVIDER = os.environ.get("IMAGE_MODERATION_PROVIDER", "none").strip().lower()
+MAX_MODERATION_BYTES = 8 * 1024 * 1024   # 8 MB per spec — larger than storage cap
+MAX_MODERATION_DIMENSION = 8000          # px — sanity cap on width/height
+
+
+def _fetch_image_bytes_for_moderation(image_url: str) -> Optional[bytes]:
+    """Resolve an /api/files/<path> URL back to bytes for local scanning.
+
+    Product image URLs coming from `/api/upload/image` look like
+    `/api/files/<app>/uploads/<user>/<file>.png`. We reuse `get_object()`
+    with that path — no HTTP round-trip needed."""
+    if not image_url:
+        return None
+    if image_url.startswith("/api/files/"):
+        try:
+            data, _ct = get_object(image_url[len("/api/files/"):])
+            return data
+        except Exception as e:
+            logger.warning(f"[MODERATION] Failed to fetch object {image_url}: {e}")
+            return None
+    # Anything else (absolute URL to a stock photo etc.) we do not fetch —
+    # those come from vetted sources. Return None and the moderator will
+    # mark them as `unverified` (admin review).
+    return None
+
+
+def _server_side_image_gate(data: bytes) -> Tuple[bool, str]:
+    """Cheap, always-on gates: real image + within size + within dims."""
+    if not data:
+        return False, "empty"
+    if len(data) > MAX_MODERATION_BYTES:
+        return False, "too_large"
+    # Decode with Pillow to prove it's a real, non-corrupt image.
+    try:
+        from PIL import Image
+        import io
+        with Image.open(io.BytesIO(data)) as im:
+            im.verify()
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+            if w > MAX_MODERATION_DIMENSION or h > MAX_MODERATION_DIMENSION:
+                return False, "dimensions_too_large"
+    except Exception:
+        return False, "corrupt_or_not_image"
+    return True, "ok"
+
+
+async def _claude_image_moderation(data: bytes, mime: str) -> Tuple[str, str]:
+    """Ask Claude Haiku (vision) whether the image contains explicit
+    sexual content or graphic violence. Returns (status, reason) where
+    status is one of: "passed", "flagged", "unverified".
+    Reason is a short internal code (never surfaced to sellers).
+    """
+    key = os.environ.get("EMERGENT_LLM_KEY")
+    if not key:
+        return "unverified", "no_emergent_key"
+    try:
+        # Reuse the same LLM chat harness the message moderator uses.
+        # We keep the prompt tight and force a single-token answer so
+        # cost + latency stay minimal.
+        import base64
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        b64 = base64.b64encode(data).decode()
+        chat = LlmChat(
+            api_key=key,
+            session_id=f"imgmod-{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "You are a strict marketplace image moderator. Look at the "
+                "image and decide if it violates our listing policy. "
+                "Reply with a SINGLE lowercase word: 'flagged' if the image "
+                "contains explicit sexual content, nudity, graphic violence, "
+                "gore, weapons, hate symbols, or is clearly unsafe for a "
+                "clothing marketplace. Reply 'ok' otherwise. No punctuation, "
+                "no explanation."
+            ),
+        ).with_model("anthropic", "claude-haiku-4-5")
+        user_msg = UserMessage(
+            text="Moderate this product image.",
+            file_contents=[ImageContent(image_base64=b64, mime_type=mime)],
+        )
+        response = await chat.send_message(user_msg)
+        verdict = (response or "").strip().lower()[:20]
+        if "flag" in verdict:
+            return "flagged", "provider_flagged"
+        if "ok" in verdict or "safe" in verdict or "pass" in verdict:
+            return "passed", "provider_ok"
+        # Anything else → we can't be sure, mark for admin review.
+        logger.warning(f"[MODERATION] Unexpected verdict from Claude: {verdict!r}")
+        return "unverified", "unclear_verdict"
+    except Exception as e:
+        logger.warning(f"[MODERATION] Claude call failed: {e}")
+        return "unverified", "provider_error"
+
+
+async def moderate_product_images(image_urls: List[str]) -> List[dict]:
+    """Return a list of per-image moderation results (same order as input).
+
+    Each item: {index, url, status: passed|flagged|unverified, reason}
+    The route handler is responsible for turning any 'flagged' entry
+    into a 422 and any 'unverified' entry into an admin-review flag on
+    the product doc."""
+    results: List[dict] = []
+    for i, url in enumerate(image_urls):
+        data = _fetch_image_bytes_for_moderation(url)
+        if data is None:
+            # External / non-storage image — not something we can gate ourselves
+            results.append({"index": i, "url": url, "status": "unverified", "reason": "not_our_storage"})
+            continue
+
+        ok, gate_reason = _server_side_image_gate(data)
+        if not ok:
+            results.append({"index": i, "url": url, "status": "flagged", "reason": gate_reason})
+            continue
+
+        # Detect MIME from magic bytes for the provider call
+        if data.startswith(b"\xff\xd8\xff"):
+            mime = "image/jpeg"
+        elif data.startswith(b"\x89PNG"):
+            mime = "image/png"
+        elif data.startswith(b"GIF8"):
+            mime = "image/gif"
+        elif data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
+            mime = "image/webp"
+        else:
+            results.append({"index": i, "url": url, "status": "flagged", "reason": "unknown_format"})
+            continue
+
+        if IMAGE_MODERATION_PROVIDER == "claude":
+            status, reason = await _claude_image_moderation(data, mime)
+        elif IMAGE_MODERATION_PROVIDER == "none":
+            # No provider configured — server-side gate has already passed.
+            # Mark 'unverified' so admins still see the review queue and we
+            # never silently pass unmoderated images through.
+            status, reason = "unverified", "no_provider"
+        else:
+            logger.warning(f"[MODERATION] Unknown provider {IMAGE_MODERATION_PROVIDER!r}")
+            status, reason = "unverified", "unknown_provider"
+
+        results.append({"index": i, "url": url, "status": status, "reason": reason})
+    return results
+
 
 # ============ HELPER FUNCTIONS ============
 

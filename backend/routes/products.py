@@ -13,7 +13,26 @@ async def create_product(product: ProductCreate, request: Request):
     brand = await db.brands.find_one({"user_id": user["id"]})
     if not brand:
         raise HTTPException(status_code=404, detail="Brand profile not found")
-    
+
+    # Moderate every image BEFORE we insert. A single flagged image blocks
+    # the whole listing with a generic 422 — internal reasons stay in logs
+    # so sellers can't fingerprint the classifier.
+    moderation = await moderate_product_images(product.images)
+    flagged = [m for m in moderation if m["status"] == "flagged"]
+    if flagged:
+        first = flagged[0]
+        logger.warning(
+            f"[MODERATION BLOCK] brand={brand['_id']} product='{product.name}' "
+            f"image_index={first['index']} reason={first['reason']}"
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=f"Image {first['index'] + 1} was flagged and can't be used. Please replace it and try again.",
+        )
+    # 'unverified' images are ALLOWED (no provider configured or external
+    # source) but the listing joins the admin review queue.
+    needs_admin_review = any(m["status"] == "unverified" for m in moderation)
+
     product_doc = {
         "brand_id": str(brand["_id"]),
         "brand_name": brand["brand_name"],
@@ -35,6 +54,15 @@ async def create_product(product: ProductCreate, request: Request):
         "is_preorder": product.is_preorder,
         "preorder_ship_date": product.preorder_ship_date.isoformat() if product.preorder_ship_date else None,
         "preorder_limit": product.preorder_limit,
+        # Structured description (hidden field-by-field on the frontend if empty)
+        "story": product.story,
+        "details": product.details,
+        "materials": product.materials,
+        "fit_notes": product.fit_notes,
+        "care": product.care,
+        # Image moderation record — one entry per image in the same order.
+        "images_moderation": moderation,
+        "moderation_status": "needs_review" if needs_admin_review else "passed",
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.products.insert_one(product_doc)
@@ -116,7 +144,11 @@ async def get_products(
         "popular": ("created_at", -1),
     }
     sort_field, sort_dir = sort_map.get(sort, ("created_at", -1))
-    
+
+    # Hide products taken down by moderation. 'needs_review' and 'passed'
+    # stay visible — only explicit 'flagged' is removed.
+    query["moderation_status"] = {"$ne": "flagged"}
+
     products = await db.products.find(query).sort(sort_field, sort_dir).skip(skip).limit(limit).to_list(limit)
     
     # Bulk fetch brand payment-ready state to enrich each product
@@ -204,6 +236,42 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
             raise HTTPException(
                 status_code=422,
                 detail="preorder_ship_date is required when enabling pre-order.",
+            )
+
+    # If the images array is being replaced, moderate any newly added URL.
+    # We only inspect the delta so re-saving unchanged edits doesn't
+    # re-scan the whole album.
+    if "images" in update_fields and update_fields["images"] is not None:
+        new_images = update_fields["images"]
+        existing_ok_urls = {
+            m["url"] for m in (product.get("images_moderation") or [])
+            if m.get("status") == "passed"
+        }
+        delta = [u for u in new_images if u not in existing_ok_urls]
+        if delta:
+            delta_results = await moderate_product_images(delta)
+            flagged = [m for m in delta_results if m["status"] == "flagged"]
+            if flagged:
+                idx_in_full = new_images.index(flagged[0]["url"])
+                logger.warning(
+                    f"[MODERATION BLOCK] update product={product_id} "
+                    f"image_index={idx_in_full} reason={flagged[0]['reason']}"
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Image {idx_in_full + 1} was flagged and can't be used. Please replace it and try again.",
+                )
+            # Rebuild full moderation record in the same order as the new album.
+            delta_map = {m["url"]: m for m in delta_results}
+            passed_map = {u: {"index": i, "url": u, "status": "passed", "reason": "prior_pass"}
+                          for i, u in enumerate(new_images) if u in existing_ok_urls}
+            merged = []
+            for i, u in enumerate(new_images):
+                m = delta_map.get(u) or passed_map.get(u) or {"index": i, "url": u, "status": "unverified", "reason": "no_record"}
+                merged.append({**m, "index": i})
+            update_fields["images_moderation"] = merged
+            update_fields["moderation_status"] = (
+                "needs_review" if any(m["status"] == "unverified" for m in merged) else "passed"
             )
 
     if update_fields:
@@ -581,4 +649,42 @@ CATEGORIES = [
 @api_router.get("/categories")
 async def get_categories():
     return CATEGORIES
+
+
+
+# ============ ADMIN — Image moderation review queue ============
+
+@api_router.get("/admin/moderation/products")
+async def admin_list_flagged_products(request: Request):
+    """Products whose images landed in the manual-review queue.
+    Includes anything with moderation_status='needs_review' — i.e. one or
+    more images came back as 'unverified' (external URL, provider off,
+    provider unclear). Never used for the auto-blocked 'flagged' verdict
+    — those are 422'd before the product ever exists."""
+    await require_admin(request)
+    out = []
+    async for p in db.products.find({"moderation_status": "needs_review"}).sort("created_at", -1).limit(200):
+        p["id"] = str(p["_id"])
+        del p["_id"]
+        out.append(p)
+    return out
+
+
+class ModerationOverride(BaseModel):
+    approve: bool
+
+
+@api_router.post("/admin/moderation/products/{product_id}")
+async def admin_moderation_override(product_id: str, payload: ModerationOverride, request: Request):
+    """Admin can flip a needs-review product to 'passed' (approve) or
+    'flagged' (take down) after eyeballing the album."""
+    await require_admin(request)
+    new_status = "passed" if payload.approve else "flagged"
+    result = await db.products.update_one(
+        {"_id": safe_object_id(product_id)},
+        {"$set": {"moderation_status": new_status, "moderation_reviewed_at": datetime.now(timezone.utc)}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"moderation_status": new_status}
 

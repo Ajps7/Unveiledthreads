@@ -36,6 +36,12 @@ export default function AddProduct() {
     is_preorder: false,
     preorder_ship_date: '',
     preorder_limit: '',
+    // Structured description (all optional)
+    story: '',
+    details_raw: '',   // newline-separated bullets in the textarea
+    materials: '',
+    fit_notes: '',
+    care: '',
   });
 
   useEffect(() => {
@@ -162,6 +168,49 @@ export default function AddProduct() {
           <ProductSizes sizes={form.sizes} onToggle={toggleSize} />
 
           <ProductPricing form={form} setForm={setForm} />
+
+          {/* Listing highlights — optional structured description. */}
+          <div className="border border-white/10 bg-[#0A0A0A] p-6 mb-6" data-testid="highlights-section">
+            <h2 className="text-lg font-bold text-white uppercase mb-1" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              Listing highlights <span className="text-[#9CA3AF] text-xs font-normal normal-case ml-2">(optional — makes your listing look premium)</span>
+            </h2>
+            <p className="text-xs text-[#9CA3AF] mb-4">
+              Skip anything you don&apos;t want to fill in. Empty fields are hidden on your listing.
+            </p>
+            <div className="grid gap-4">
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-[#C0C0C0] mb-1">Short story <span className="text-[#9CA3AF] normal-case">(max 300 chars)</span></label>
+                <textarea maxLength={300} value={form.story} onChange={(e) => setForm({ ...form, story: e.target.value })}
+                  placeholder="e.g. Cut & sewn in a small East London studio, our love letter to late-90s British streetwear."
+                  className="input-brutalist w-full min-h-[70px] resize-none" data-testid="story-input" />
+              </div>
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-[#C0C0C0] mb-1">Key details <span className="text-[#9CA3AF] normal-case">(one bullet per line, up to 8)</span></label>
+                <textarea value={form.details_raw} onChange={(e) => setForm({ ...form, details_raw: e.target.value })}
+                  placeholder="380 gsm heavyweight cotton&#10;Screen-printed with water-based inks&#10;Boxy fit — sits below the belt"
+                  className="input-brutalist w-full min-h-[100px] resize-none" data-testid="details-input" />
+              </div>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-[#C0C0C0] mb-1">Materials</label>
+                  <input type="text" maxLength={120} value={form.materials} onChange={(e) => setForm({ ...form, materials: e.target.value })}
+                    placeholder="e.g. 100% organic cotton" className="input-brutalist w-full" data-testid="materials-input" />
+                </div>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-[#C0C0C0] mb-1">Fit notes</label>
+                  <input type="text" maxLength={200} value={form.fit_notes} onChange={(e) => setForm({ ...form, fit_notes: e.target.value })}
+                    placeholder='e.g. Runs true to size; model wears M'
+                    className="input-brutalist w-full" data-testid="fit-notes-input" />
+                </div>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-[#C0C0C0] mb-1">Care</label>
+                  <input type="text" maxLength={200} value={form.care} onChange={(e) => setForm({ ...form, care: e.target.value })}
+                    placeholder="e.g. Machine wash cold, tumble dry low"
+                    className="input-brutalist w-full" data-testid="care-input" />
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Pre-order controls — MVP pre-order feature */}
           <div className="border border-white/10 bg-[#0A0A0A] p-6 mb-6" data-testid="preorder-section">
