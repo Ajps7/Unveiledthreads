@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import Header from '../components/Header';
 import { AdminApplicationsPanel } from '../components/admin-dashboard/AdminApplicationsPanel';
 import { AdminDisputesPanel } from '../components/admin-dashboard/AdminDisputesPanel';
+import { AdminModerationPanel } from '../components/admin-dashboard/AdminModerationPanel';
 import {
   Shield,
   Users,
@@ -329,6 +330,8 @@ export default function AdminDashboard() {
             onRefund={handleRefundDispute}
             onClose={handleCloseDispute}
           />
+
+          <AdminModerationPanel />
 
           {/* Brands Management */}
           <div>

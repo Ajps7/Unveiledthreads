@@ -615,9 +615,11 @@ async def _claude_image_moderation(data: bytes, mime: str) -> Tuple[str, str]:
     try:
         # Reuse the same LLM chat harness the message moderator uses.
         # We keep the prompt tight and force a single-token answer so
-        # cost + latency stay minimal.
+        # cost + latency stay minimal. `mime` isn't a constructor arg —
+        # emergentintegrations sniffs it from the base64 payload itself.
         import base64
         from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        _ = mime  # kept in signature for future providers that need it
         b64 = base64.b64encode(data).decode()
         chat = LlmChat(
             api_key=key,
@@ -634,7 +636,7 @@ async def _claude_image_moderation(data: bytes, mime: str) -> Tuple[str, str]:
         ).with_model("anthropic", "claude-haiku-4-5")
         user_msg = UserMessage(
             text="Moderate this product image.",
-            file_contents=[ImageContent(image_base64=b64, mime_type=mime)],
+            file_contents=[ImageContent(image_base64=b64)],
         )
         response = await chat.send_message(user_msg)
         verdict = (response or "").strip().lower()[:20]
