@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp, Info } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { ProductDescription } from '../components/product/ProductDescription';
 import Header from '../components/Header';
 import { calcBuyerFee, BUYER_PROTECTION_TOOLTIP } from '../lib/fees';
 import { FoundingBadge } from '../components/FoundingBadge';
@@ -236,7 +237,7 @@ export default function ProductDetail() {
               <p className="text-[#C0C0C0] font-medium">Total: £{totalPrice.toFixed(2)}</p>
             </div>
 
-            <p className="text-[#9CA3AF] mb-8 leading-relaxed" data-testid="product-description">{product.description}</p>
+            <ProductDescription product={product} />
 
             {/* Sizes */}
             {product.sizes?.length > 0 && (
