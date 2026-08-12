@@ -6,6 +6,7 @@ import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Se
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ProductDescription } from '../components/product/ProductDescription';
+import { ProductGallery } from '../components/product/ProductGallery';
 import Header from '../components/Header';
 import { calcBuyerFee, BUYER_PROTECTION_TOOLTIP } from '../lib/fees';
 import { FoundingBadge } from '../components/FoundingBadge';
@@ -146,29 +147,7 @@ export default function ProductDetail() {
 
         <div className="grid lg:grid-cols-2 gap-12">
           {/* Images */}
-          <div className="space-y-4">
-            <div className="aspect-[3/4] overflow-hidden border border-white/10 bg-[#0F0F0F]">
-              {product.images?.length > 0 ? (
-                <img
-                  src={product.images[0].startsWith('/api/') ? `${API}${product.images[0]}` : product.images[0]}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                  data-testid="product-main-image"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-[#9CA3AF]">No Image</div>
-              )}
-            </div>
-            {product.images?.length > 1 && (
-              <div className="grid grid-cols-4 gap-2">
-                {product.images.slice(1).map((img, i) => (
-                  <div key={img} className="aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
-                    <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt={`${product.name} ${i + 2}`} className="w-full h-full object-cover" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <ProductGallery images={product.images || []} productName={product.name} />
 
           {/* Info */}
           <div>
