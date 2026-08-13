@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '../ui/select';
 import ImageUpload from '../ImageUpload';
+import { ProductImageReorder } from '../product/ProductImageReorder';
 import { X } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -87,19 +88,13 @@ export function EditListingDialog({ editProduct, editForm, setEditForm, saving, 
           </div>
           <div>
             <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-2">Images</label>
-            {(editForm.images || []).length > 0 && (
-              <div className="grid grid-cols-4 gap-2 mb-2">
-                {editForm.images.map((img, i) => (
-                  <div key={img} className="relative group aspect-square overflow-hidden border border-white/10 bg-[#0F0F0F]">
-                    <img src={img.startsWith('/api/') ? `${API}${img}` : img} alt="" className="w-full h-full object-cover" />
-                    <button type="button" onClick={() => setEditForm({ ...editForm, images: editForm.images.filter((_, idx) => idx !== i) })} className="absolute top-1 right-1 bg-black/70 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <ImageUpload multiple label="Upload More" onUpload={(urls) => setEditForm({ ...editForm, images: [...(editForm.images || []), ...urls] })} />
+            <ProductImageReorder
+              value={editForm.images || []}
+              onChange={(next) => setEditForm({ ...editForm, images: next })}
+            />
+            <div className="mt-3">
+              <ImageUpload multiple label="Upload More" onUpload={(urls) => setEditForm({ ...editForm, images: [...(editForm.images || []), ...urls] })} />
+            </div>
           </div>
           <div className="flex gap-3 pt-2">
             <Button className="btn-primary flex-1" onClick={onSave} disabled={saving} data-testid="save-edit-button">

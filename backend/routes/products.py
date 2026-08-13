@@ -243,13 +243,23 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
     # re-scan the whole album.
     if "images" in update_fields and update_fields["images"] is not None:
         new_images = update_fields["images"]
-        existing_ok_urls = {
-            m["url"] for m in (product.get("images_moderation") or [])
-            if m.get("status") == "passed"
-        }
-        delta = [u for u in new_images if u not in existing_ok_urls]
-        if delta:
-            delta_results = await moderate_product_images(delta)
+
+        # Reject duplicate URLs in the new album. Pure reorders shouldn't
+        # trip this; a buggy client re-adding a URL should.
+        if len(set(new_images)) != len(new_images):
+            raise HTTPException(status_code=422, detail="Image list contains duplicates.")
+
+        # "Existing" = any URL already on the product doc, regardless of its
+        # current moderation status. Reordering (or removing) previously-seen
+        # images must NEVER re-invoke the moderator — the admin has already
+        # had a chance to override any 'unverified' verdict via the review
+        # queue, and re-scanning would wipe that decision.
+        existing_urls = set(product.get("images") or [])
+        existing_mod = {m["url"]: m for m in (product.get("images_moderation") or [])}
+
+        new_urls = [u for u in new_images if u not in existing_urls]
+        if new_urls:
+            delta_results = await moderate_product_images(new_urls)
             flagged = [m for m in delta_results if m["status"] == "flagged"]
             if flagged:
                 idx_in_full = new_images.index(flagged[0]["url"])
@@ -261,18 +271,36 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
                     status_code=422,
                     detail=f"Image {idx_in_full + 1} was flagged and can't be used. Please replace it and try again.",
                 )
-            # Rebuild full moderation record in the same order as the new album.
             delta_map = {m["url"]: m for m in delta_results}
-            passed_map = {u: {"index": i, "url": u, "status": "passed", "reason": "prior_pass"}
-                          for i, u in enumerate(new_images) if u in existing_ok_urls}
-            merged = []
-            for i, u in enumerate(new_images):
-                m = delta_map.get(u) or passed_map.get(u) or {"index": i, "url": u, "status": "unverified", "reason": "no_record"}
-                merged.append({**m, "index": i})
-            update_fields["images_moderation"] = merged
-            update_fields["moderation_status"] = (
-                "needs_review" if any(m["status"] == "unverified" for m in merged) else "passed"
-            )
+        else:
+            delta_map = {}
+
+        # Rebuild images_moderation in the new album's order.
+        # - New URL         → verdict from this run
+        # - Existing URL    → carry forward its prior verdict verbatim
+        #                     (preserves 'passed' AND any admin decisions).
+        # If a URL somehow has no prior entry AND wasn't just moderated
+        # (shouldn't happen, but defensive) mark unverified so it lands in
+        # the review queue rather than silently passing.
+        merged = []
+        for i, u in enumerate(new_images):
+            entry = delta_map.get(u) or existing_mod.get(u)
+            if entry is None:
+                entry = {"url": u, "status": "unverified", "reason": "no_record"}
+            merged.append({**entry, "index": i})
+        update_fields["images_moderation"] = merged
+
+        # Only re-derive moderation_status if we actually touched moderation
+        # (either new URLs came in, or a prior 'flagged'/'unverified' entry
+        # is still present). Otherwise leave the field alone — a pure
+        # reorder of an all-'passed' album must not disturb it, and if an
+        # admin has already resolved a review, their decision stands.
+        if new_urls or any(m["status"] != "passed" for m in merged):
+            has_unverified = any(m["status"] == "unverified" for m in merged)
+            # Only lower the status; never overwrite an admin's explicit
+            # 'passed' or 'flagged' with a fresh 'needs_review'.
+            if product.get("moderation_status") in (None, "needs_review") or new_urls:
+                update_fields["moderation_status"] = "needs_review" if has_unverified else "passed"
 
     if update_fields:
         await db.products.update_one(
