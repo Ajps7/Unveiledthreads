@@ -25,6 +25,7 @@ import ImageUpload from '../components/ImageUpload';
 import { StripeConnectPanel } from '../components/brand-dashboard/StripeConnectPanel';
 import { PayoutsWidget } from '../components/brand-dashboard/PayoutsWidget';
 import { ShareStorePanel } from '../components/brand-dashboard/ShareStorePanel';
+import { BotwImagePicker } from '../components/brand-dashboard/BotwImagePicker';
 import { 
   LayoutDashboard, 
   Package, 
@@ -560,6 +561,8 @@ export default function BrandDashboard() {
         </div>
 
         <ShareStorePanel brandData={brandData} />
+
+        <BotwImagePicker brandData={brandData} products={products} onSubmitted={fetchBrandData} />
 
         {/* Products List */}
         <div>

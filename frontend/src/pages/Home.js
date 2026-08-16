@@ -120,7 +120,13 @@ export default function Home() {
               <div className="relative">
                 <div className="aspect-[4/5] overflow-hidden border border-white/10">
                   <img
-                    src={brandOfWeek.banner_url || "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85"}
+                    src={
+                      (brandOfWeek.featured_image
+                        ? (brandOfWeek.featured_image.startsWith('/api/') ? `${API}${brandOfWeek.featured_image}` : brandOfWeek.featured_image)
+                        : null)
+                      || brandOfWeek.banner_url
+                      || "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85"
+                    }
                     alt={brandOfWeek.brand_name}
                     className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
                   />
@@ -242,7 +248,13 @@ export default function Home() {
               <div className="relative">
                 <div className="aspect-[4/5] overflow-hidden border border-white/10">
                   <img
-                    src={brandOfWeek.banner_url || "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85"}
+                    src={
+                      (brandOfWeek.featured_image
+                        ? (brandOfWeek.featured_image.startsWith('/api/') ? `${API}${brandOfWeek.featured_image}` : brandOfWeek.featured_image)
+                        : null)
+                      || brandOfWeek.banner_url
+                      || "https://images.unsplash.com/photo-1615545362149-85299994b09b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwzfHxzdHJlZXR3ZWFyJTIwZmFzaGlvbiUyMG1vZGVsfGVufDB8fHx8MTc3NjExNDAyNnww&ixlib=rb-4.1.0&q=85"
+                    }
                     alt={brandOfWeek.brand_name}
                     className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
                   />

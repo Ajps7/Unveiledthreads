@@ -67,8 +67,100 @@ async def get_brand_of_week():
     if brand:
         brand["id"] = str(brand["_id"])
         del brand["_id"]
+        # Expose the admin-APPROVED featured image so the homepage can render
+        # it. The pending image is intentionally NOT exposed here — only in
+        # the seller's own dashboard + the admin queue.
+        if brand.get("botw_image_status") == "approved" and brand.get("botw_featured_image_approved"):
+            brand["featured_image"] = brand["botw_featured_image_approved"]
         return brand
     return None
+
+
+# ============ BRAND OF THE WEEK — SELLER-CHOSEN HERO IMAGE ============
+
+class BotwImageChoice(BaseModel):
+    image_url: str = Field(min_length=1, max_length=500)
+
+
+@api_router.post("/brands/me/botw-image")
+async def submit_botw_image(payload: BotwImageChoice, request: Request):
+    """Brand-of-the-Week only: submit an image from one of your own products
+    to be used as the homepage feature. Enters `pending` — admin has to
+    approve before it goes live."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    if not brand.get("is_brand_of_week"):
+        raise HTTPException(status_code=403, detail="Only the current Brand of the Week can set a homepage image.")
+
+    # The submitted URL must belong to one of this brand's own products —
+    # closes an obvious hole where a BotW could point at any image on the
+    # internet (or another brand's photography).
+    owned = await db.products.find_one({
+        "brand_id": str(brand["_id"]),
+        "images": payload.image_url,
+    })
+    if not owned:
+        raise HTTPException(status_code=422, detail="Image URL must be one of your own product images.")
+
+    await db.brands.update_one(
+        {"_id": brand["_id"]},
+        {"$set": {
+            "botw_featured_image_pending": payload.image_url,
+            "botw_image_status": "pending",
+            "botw_image_submitted_at": datetime.now(timezone.utc),
+        }},
+    )
+    return {"botw_image_status": "pending", "botw_featured_image_pending": payload.image_url}
+
+
+@api_router.get("/admin/botw-image/queue")
+async def admin_botw_image_queue(request: Request):
+    """Homepage-image submissions awaiting admin approval."""
+    await require_admin(request)
+    out = []
+    async for b in db.brands.find({"botw_image_status": "pending"}).sort("botw_image_submitted_at", -1).limit(100):
+        b["id"] = str(b["_id"]); del b["_id"]
+        out.append(b)
+    return out
+
+
+class BotwImageDecision(BaseModel):
+    approve: bool
+
+
+@api_router.post("/admin/botw-image/{brand_id}")
+async def admin_decide_botw_image(brand_id: str, payload: BotwImageDecision, request: Request):
+    """Admin approves or rejects the pending homepage image."""
+    await require_admin(request)
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    pending = brand.get("botw_featured_image_pending")
+    if not pending:
+        raise HTTPException(status_code=400, detail="No pending image for this brand.")
+
+    now = datetime.now(timezone.utc)
+    if payload.approve:
+        await db.brands.update_one(
+            {"_id": brand["_id"]},
+            {"$set": {
+                "botw_featured_image_approved": pending,
+                "botw_image_status": "approved",
+                "botw_image_reviewed_at": now,
+            }, "$unset": {"botw_featured_image_pending": ""}},
+        )
+        return {"botw_image_status": "approved"}
+    else:
+        await db.brands.update_one(
+            {"_id": brand["_id"]},
+            {"$set": {
+                "botw_image_status": "rejected",
+                "botw_image_reviewed_at": now,
+            }, "$unset": {"botw_featured_image_pending": ""}},
+        )
+        return {"botw_image_status": "rejected"}
 
 @api_router.get("/brands/by-slug/{slug}")
 async def get_brand_by_slug(slug: str):
