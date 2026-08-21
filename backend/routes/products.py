@@ -149,6 +149,11 @@ async def get_products(
     # stay visible — only explicit 'flagged' is removed.
     query["moderation_status"] = {"$ne": "flagged"}
 
+    # Drafts (CSV imports awaiting brand review) must never appear in public
+    # listings. Products created before the draft/published split have no
+    # status field and are treated as published for backward compatibility.
+    query["status"] = {"$ne": "draft"}
+
     products = await db.products.find(query).sort(sort_field, sort_dir).skip(skip).limit(limit).to_list(limit)
     
     # Bulk fetch brand payment-ready state to enrich each product
@@ -188,11 +193,31 @@ async def get_filter_options():
     }
 
 @api_router.get("/products/{product_id}")
-async def get_product(product_id: str):
+async def get_product(product_id: str, request: Request):
     product = await db.products.find_one({"_id": safe_object_id(product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
+    # Drafts are only visible to the owning brand + admins. Everyone else
+    # (including anonymous callers) gets a plain 404 — never leak the
+    # existence of an unpublished listing.
+    if product.get("status") == "draft":
+        viewer = None
+        try:
+            viewer = await get_current_user(request)
+        except HTTPException:
+            viewer = None
+        allowed = False
+        if viewer:
+            if viewer.get("role") == "admin":
+                allowed = True
+            else:
+                brand = await db.brands.find_one({"user_id": viewer["id"]})
+                if brand and str(brand["_id"]) == product.get("brand_id"):
+                    allowed = True
+        if not allowed:
+            raise HTTPException(status_code=404, detail="Product not found")
+
     product["id"] = str(product["_id"])
     del product["_id"]
     

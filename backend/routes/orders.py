@@ -14,6 +14,10 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
+    # Drafts (imports awaiting brand review) can never be checked out.
+    if product.get("status") == "draft":
+        raise HTTPException(status_code=404, detail="Product not found")
+
     is_preorder = bool(product.get("is_preorder"))
 
     # Stock rules diverge for pre-orders. Non-pre-order behaviour is unchanged.

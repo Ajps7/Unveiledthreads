@@ -10,6 +10,7 @@ import routes.account  # noqa: E402,F401
 import routes.applications  # noqa: E402,F401
 import routes.brands  # noqa: E402,F401
 import routes.products  # noqa: E402,F401
+import routes.imports  # noqa: E402,F401
 import routes.payments  # noqa: E402,F401
 import routes.connect  # noqa: E402,F401
 import routes.disputes  # noqa: E402,F401

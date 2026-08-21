@@ -308,6 +308,12 @@ export default function BrandDashboard() {
                 My Listings
               </Button>
             </Link>
+            <Link to="/brand/import">
+              <Button className="btn-secondary" data-testid="import-csv-button">
+                <Upload className="w-4 h-4 mr-2" />
+                Import CSV
+              </Button>
+            </Link>
             <Link to="/brand/add-product">
               <Button className="btn-primary" data-testid="add-product-button">
                 <Plus className="w-4 h-4 mr-2" />

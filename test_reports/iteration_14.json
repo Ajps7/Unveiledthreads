@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 14 — CSV product-import feature. Ran 16 pytest cases covering auth gates, Shopify grouping, image fetch/storage, draft hiding on public list & detail, draft checkout blocking, publish gates, publish-all skipped_details, size/count caps, and backward compat. All 16 backend tests PASS. Frontend E2E via Playwright: login → /brand/import loads with all data-testids → upload sample Shopify CSV → toast 'Imported 1 products as drafts' → summary card shows '1 imported as drafts · 1 skipped' with skipped-row table (row 4, Broken, missing or invalid price) → 1 draft card rendered → clicking publish-draft removed it from grid (1→0) → dashboard shows import-csv-button. Grouping correct: 2 variants of ui-test-hoodie collapsed into single product; no-price row skipped with row# + reason. Verified images are stored under /api/files/... (external unsplash URLs NOT leaked into product.images).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_csv_import.py",
+    "/app/test_reports/pytest/csv_import_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/imports.py uses blocking `http_requests.get` (requests library) inside an async endpoint — for large imports this blocks the event loop for up to (20s * N images). Consider aiohttp/httpx.AsyncClient or running the fetch loop via asyncio.to_thread to keep the API responsive under concurrency. Not a functional bug, but a scaling smell.",
+    "_build_product_doc silently pads short descriptions with a placeholder rather than skipping — acceptable UX-wise, but means publish blocker 'description too short' can never trigger on freshly-imported drafts. Fine given publish gate re-validates.",
+    "MAX_IMPORT_PRODUCTS check happens AFTER _extract_rows + _group_rows already ran — for a malicious 5MB CSV of 200k tiny rows this could be memory-heavy. Consider counting rows during parse and bailing early. Low priority given 5MB file cap already limits blast radius."
+  ],
+  "updated_files": ["/app/backend/tests/test_csv_import.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100%"},
+  "test_credentials": "Brand: demo@threadandbone.uk / Demo123!",
+  "seed_data_creation": "Created 2 draft products during test; cleanup teardown deletes them via DELETE /api/products/{id}. Frontend test published then deleted its own drafts.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "CSV import feature fully working. Test file at /app/backend/tests/test_csv_import.py is reusable regression. NOTE: /api/orders/checkout requires an `origin_url` field in the body (not documented in review request but needed to reproduce checkout tests). Draft checkout correctly 404s. Backend logs are clean; no ObjectId serialization issues observed.",
+  "rca of the issue": "N/A — no issues found."
+}
