@@ -8,10 +8,21 @@ import { EditListingDialog } from '../components/my-listings/EditListingDialog';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Upload, FileText, Loader2, CheckCircle2, AlertTriangle, Package,
-  Edit, Trash2, Rocket, ChevronRight, Info, X,
+  Edit, Trash2, Rocket, ChevronRight, Info, X, Download, CheckSquare, Square,
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
+
+// Sample CSV brands can start from. Mirrors the Shopify export convention
+// so an existing store's export slots in unchanged. Two example products,
+// one with size variants so the grouping is self-documenting.
+const CSV_TEMPLATE = `Handle,Title,Body (HTML),Product Type,Option1 Name,Option1 Value,Variant Price,Variant Inventory Qty,Image Src
+example-hoodie,Example Hoodie,Heavyweight organic cotton hoodie. Replace with your own copy.,hoodies,Size,S,65.00,10,https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=800
+example-hoodie,,,,Size,M,65.00,8,
+example-hoodie,,,,Size,L,65.00,5,
+example-tee,Example Tee,220gsm organic cotton screen print. Replace with your own copy.,t-shirts,Size,M,28.00,20,https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800
+example-tee,,,,Size,L,28.00,15,
+`;
 
 export default function ImportProducts() {
   const { user, loading: authLoading } = useAuth();
@@ -30,6 +41,60 @@ export default function ImportProducts() {
   const [editProduct, setEditProduct] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+
+  // Selection for bulk-delete. Kept as a Set of draft IDs so toggling is O(1).
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const handleDownloadTemplate = () => {
+    // BOM-prefixed so Excel opens UTF-8 CSVs correctly.
+    const blob = new Blob(["\ufeff" + CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'unveiled-threads-catalogue-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Template downloaded');
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === drafts.length && drafts.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(drafts.map((d) => d.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} draft${selectedIds.size === 1 ? '' : 's'}? This can\u2019t be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const res = await axios.post(
+        `${API}/api/products/drafts/delete-many`,
+        { ids: Array.from(selectedIds) },
+        { withCredentials: true },
+      );
+      toast.success(`Deleted ${res.data.deleted} draft${res.data.deleted === 1 ? '' : 's'}`);
+      setSelectedIds(new Set());
+      fetchDrafts();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Bulk delete failed');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const fetchDrafts = useCallback(async () => {
     try {
@@ -209,11 +274,21 @@ export default function ImportProducts() {
 
         {/* Upload panel */}
         <div className="border border-white/10 bg-[#0A0A0A] p-6 md:p-8 mb-10">
-          <div className="flex items-center gap-3 mb-4">
-            <Upload className="w-5 h-5 text-[#39FF14]" />
-            <h2 className="text-lg font-bold text-white uppercase tracking-wider" style={{ fontFamily: 'Clash Display, sans-serif' }}>
-              Upload CSV
-            </h2>
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <Upload className="w-5 h-5 text-[#39FF14]" />
+              <h2 className="text-lg font-bold text-white uppercase tracking-wider" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+                Upload CSV
+              </h2>
+            </div>
+            <Button
+              variant="ghost"
+              onClick={handleDownloadTemplate}
+              className="text-[#39FF14] hover:bg-[#39FF14]/10 text-xs uppercase tracking-wider rounded-none"
+              data-testid="download-template-button"
+            >
+              <Download className="w-3 h-3 mr-2" /> Download template CSV
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -365,20 +440,51 @@ export default function ImportProducts() {
               {drafts.length} draft{drafts.length === 1 ? '' : 's'} · {validDraftCount} ready to publish
             </p>
           </div>
-          {drafts.length > 0 && (
-            <Button
-              onClick={handlePublishAll}
-              disabled={publishingAll || validDraftCount === 0}
-              className="btn-primary"
-              data-testid="publish-all-button"
-            >
-              {publishingAll ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing…</>
-              ) : (
-                <><Rocket className="w-4 h-4 mr-2" /> Publish all valid ({validDraftCount})</>
-              )}
-            </Button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {drafts.length > 0 && (
+              <Button
+                variant="ghost"
+                onClick={toggleSelectAll}
+                className="text-[#9CA3AF] hover:text-white text-xs uppercase tracking-wider rounded-none"
+                data-testid="toggle-select-all"
+              >
+                {selectedIds.size === drafts.length ? (
+                  <><CheckSquare className="w-3 h-3 mr-2" /> Deselect all</>
+                ) : (
+                  <><Square className="w-3 h-3 mr-2" /> Select all</>
+                )}
+              </Button>
+            )}
+            {selectedIds.size > 0 && (
+              <Button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                variant="ghost"
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 text-xs uppercase tracking-wider border border-red-500/30 rounded-none"
+                data-testid="bulk-delete-button"
+              >
+                {bulkDeleting ? (
+                  <><Loader2 className="w-3 h-3 mr-2 animate-spin" /> Deleting…</>
+                ) : (
+                  <><Trash2 className="w-3 h-3 mr-2" /> Delete selected ({selectedIds.size})</>
+                )}
+              </Button>
+            )}
+            {drafts.length > 0 && (
+              <Button
+                onClick={handlePublishAll}
+                disabled={publishingAll || validDraftCount === 0}
+                className="btn-primary"
+                data-testid="publish-all-button"
+              >
+                {publishingAll ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Publishing…</>
+                ) : (
+                  <><Rocket className="w-4 h-4 mr-2" /> Publish all valid ({validDraftCount})</>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
 
         {loadingDrafts ? (
@@ -402,9 +508,23 @@ export default function ImportProducts() {
               return (
                 <div
                   key={d.id}
-                  className="border border-white/10 bg-[#0A0A0A] overflow-hidden"
+                  className={`border bg-[#0A0A0A] overflow-hidden relative ${
+                    selectedIds.has(d.id) ? 'border-[#39FF14]' : 'border-white/10'
+                  }`}
                   data-testid={`draft-${d.id}`}
                 >
+                  <button
+                    onClick={() => toggleSelected(d.id)}
+                    className={`absolute top-2 right-2 z-10 w-6 h-6 flex items-center justify-center border rounded-none ${
+                      selectedIds.has(d.id)
+                        ? 'bg-[#39FF14] border-[#39FF14] text-black'
+                        : 'bg-black/60 border-white/30 text-white/60 hover:text-white'
+                    }`}
+                    aria-label="Select draft"
+                    data-testid={`select-draft-${d.id}`}
+                  >
+                    {selectedIds.has(d.id) ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+                  </button>
                   <div className="aspect-[4/3] bg-[#0F0F0F] relative">
                     {imgSrc ? (
                       <img src={imgSrc} alt={d.name} className="w-full h-full object-cover" />

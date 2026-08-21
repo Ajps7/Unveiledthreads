@@ -8,6 +8,7 @@ import { AdminApplicationsPanel } from '../components/admin-dashboard/AdminAppli
 import { AdminDisputesPanel } from '../components/admin-dashboard/AdminDisputesPanel';
 import { AdminModerationPanel } from '../components/admin-dashboard/AdminModerationPanel';
 import { AdminBotwImageQueue } from '../components/admin-dashboard/AdminBotwImageQueue';
+import { AdminBotwRotationPanel } from '../components/admin-dashboard/AdminBotwRotationPanel';
 import {
   Shield,
   Users,
@@ -335,6 +336,8 @@ export default function AdminDashboard() {
           <AdminModerationPanel />
 
           <AdminBotwImageQueue />
+
+          <AdminBotwRotationPanel />
 
           {/* Brands Management */}
           <div>

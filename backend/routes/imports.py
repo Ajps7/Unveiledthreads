@@ -650,3 +650,36 @@ async def publish_all_valid_drafts(request: Request):
         published_ids.append(str(d["_id"]))
 
     return {"published": len(published_ids), "skipped": len(skipped), "skipped_details": skipped, "published_ids": published_ids}
+
+
+class BulkDeleteDrafts(BaseModel):
+    ids: List[str] = Field(min_length=1, max_length=200)
+
+
+@api_router.post("/products/drafts/delete-many")
+async def bulk_delete_drafts(payload: BulkDeleteDrafts, request: Request):
+    """Delete a batch of the brand's own drafts. Safety: we hard-scope
+    to (brand_id, status='draft') so a compromised token can't wipe
+    published listings via this endpoint even if it forges IDs."""
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+
+    # Sanitise + coerce. Invalid ObjectIds are silently dropped rather
+    # than 400'ing — a mixed batch of good IDs shouldn't fail as a whole.
+    valid_object_ids = []
+    for pid in payload.ids:
+        try:
+            valid_object_ids.append(ObjectId(pid))
+        except Exception:
+            continue
+    if not valid_object_ids:
+        raise HTTPException(status_code=400, detail="No valid draft IDs supplied")
+
+    result = await db.products.delete_many({
+        "_id": {"$in": valid_object_ids},
+        "brand_id": str(brand["_id"]),
+        "status": "draft",
+    })
+    return {"deleted": result.deleted_count}

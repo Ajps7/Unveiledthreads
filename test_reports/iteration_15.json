@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 15 regression: CSV template download, bulk-delete drafts, and BotW auto-rotation (weekly hybrid with 24h veto window). 14/14 backend pytest tests pass and 16/16 iter14 CSV regression tests still pass. Frontend flows verified end-to-end (template download, select-all/deselect-all, per-draft checkbox, bulk-delete, admin BotW panel controls, cross-role leak). Found and FIXED one critical bug: GET /api/admin/botw/queue returned 500 due to naive vs tz-aware datetime comparison in the eligible_brands sort key (three call sites in routes/botw.py). Backend now stable end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_botw_and_bulk_delete.py",
+    "/app/test_reports/pytest/iter15_results.xml",
+    "/app/backend/tests/test_csv_import.py"
+  ],
+  "action_items": [
+    "None blocking. Optional: consider a data-migration one-off that normalises any legacy `brands.botw_last_featured_at` naive datetimes to tz-aware UTC, so the tz-normalisation defensive code in routes/botw.py can eventually be simplified."
+  ],
+  "critical_code_review_comments": [
+    "FIXED: routes/botw.py had 3 sites (_pick_next_brand fair-rotation sort, performance-week scoring, and admin_botw_queue sort) that assumed botw_last_featured_at was always tz-aware. Legacy brand docs from the manual BotW endpoint store naive datetimes, so sorting the mixed list crashed with 'can't compare offset-naive and offset-aware datetimes'. All three sites now normalise via replace(tzinfo=utc) when tzinfo is None.",
+    "routes/botw.py:_score_brand_performance iterates orders row-by-row in Python instead of using an aggregation pipeline. Fine for MVP volumes; flag if the orders collection grows past ~10k/month per brand.",
+    "routes/botw.py history is capped at 20 rotations; that's ~5 months of data — reasonable for MVP but worth noting for future reporting/audit needs.",
+    "ImportProducts.js CSV_TEMPLATE constant duplicates the backend Shopify column convention; consider serving the template from a backend endpoint so aliases stay in sync (currently drift risk).",
+    "AdminBotwRotationPanel handleVeto/handleSkip/handleRotateNow share almost identical try/finally scaffolding — could be extracted into a small useAsyncAction hook but not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/routes/botw.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 iter15 + 16/16 iter14 regression)",
+    "frontend": "100% of visible flows exercised (template download, bulk-delete, BotW panel controls, cross-role leak)"
+  },
+  "test_credentials": "Admin anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159; Brand demo@threadandbone.uk / Demo123! — both verified working via cookie session (httpOnly access_token + refresh_token). Matches /app/memory/test_credentials.md.",
+  "seed_data_creation": "test_iter15_botw_and_bulk_delete.py creates a handful of TEST_iter15_* draft products via CSV import solely to exercise bulk-delete, then deletes them within the same test. No residue expected. UI test also created + deleted 2 seed drafts named TEST_UI_DraftAlpha/Beta. BotW state was rotated once by pytest and once by the UI test; whichever brand ended up current is fine (repeated tests are idempotent because rotate-now uses the queued next or auto-picks).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter15 introduced three features: CSV template download button, bulk-delete for drafts, BotW auto-rotation. The one bug found was a naive-vs-aware datetime crash in /api/admin/botw/queue when legacy brands existed with naive botw_last_featured_at. Fixed defensively at 3 sites in routes/botw.py. Full pytest suite at /app/backend/tests/test_iter15_botw_and_bulk_delete.py covers auth gates, all 4 admin endpoints, bulk-delete happy/edge paths.",
+  "rca of the issue": "GET /api/admin/botw/queue crashed with `TypeError: can't compare offset-naive and offset-aware datetimes` when at least one brand had a legacy naive `botw_last_featured_at` (from the manual set-brand-of-week endpoint) and another had a tz-aware value (from the new rotate-now flow). The sort in _list_eligible_brands and in admin_botw_queue tried to compare them and raised. REPRO: manual set-BotW on brand A (writes naive datetime pre-fix), rotate-now once (writes tz-aware datetime on brand B), then GET /api/admin/botw/queue → 500. MITIGATION: normalise naive datetimes to UTC in the sort key at 3 sites in routes/botw.py — done in this iteration."
+}

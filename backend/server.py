@@ -24,6 +24,7 @@ import routes.analytics  # noqa: E402,F401
 import routes.referrals  # noqa: E402,F401
 import routes.messaging  # noqa: E402,F401
 import routes.community  # noqa: E402,F401
+import routes.botw  # noqa: E402,F401
 
 # Test-only rate-limiter reset — gated by ENVIRONMENT so it can never
 # exist on production. Used by the pytest suite to isolate rate-limit
@@ -39,6 +40,7 @@ if os.environ.get("ENVIRONMENT", "development").strip().lower() != "production":
 
 from routes.engagement import low_stock_digest_loop, abandoned_checkout_loop  # noqa: E402
 from routes.orders import order_reconciliation_loop  # noqa: E402
+from routes.botw import botw_rotation_loop  # noqa: E402
 
 # ============ SEED DATA ============
 
@@ -442,6 +444,10 @@ async def startup_event():
     
     # Paid-order reconciliation sweep (settles orders when the buyer never returned)
     asyncio.create_task(order_reconciliation_loop())
+
+    # Brand-of-the-Week weekly hybrid auto-rotation (fair × 3 weeks, performance
+    # every 4th, 24h admin veto window). See routes/botw.py for the cycle logic.
+    asyncio.create_task(botw_rotation_loop())
     
     # Write test credentials file — DEV ONLY. Never write cleartext admin
     # credentials on production, where the file could leak via a mis-mounted volume.
