@@ -192,6 +192,163 @@ async def _notify_admins_of_pick(next_brand: dict, scheduled_at: datetime) -> No
             logger.warning(f"[BOTW] Admin notify failed: {e}")
 
 
+# ============ BRAND-FACING EMAILS ============
+
+async def _brand_owner_email(brand: dict) -> Optional[Tuple[str, str]]:
+    """Return (recipient_email, owner_name) for a brand, or None if not resolvable."""
+    owner_id = brand.get("user_id")
+    if not owner_id:
+        return None
+    try:
+        user = await db.users.find_one({"_id": ObjectId(owner_id)}, {"email": 1, "name": 1})
+    except Exception:
+        return None
+    if not user or not user.get("email"):
+        return None
+    return (user["email"], user.get("name") or brand.get("brand_name") or "there")
+
+
+async def send_botw_queued_email(brand: dict, scheduled_at: datetime) -> None:
+    """"You've been picked as next BotW — the slot goes live in ~24h" email.
+    Sent whenever the loop or an admin sets `next_brand_id`. Never raises —
+    email failures must not break the rotation loop."""
+    resolved = await _brand_owner_email(brand)
+    if not resolved:
+        return
+    recipient_email, owner_name = resolved
+
+    if not (RESEND_API_KEY and SENDER_EMAIL):
+        logger.info(f"[MOCK EMAIL — BOTW queued] To: {recipient_email} | brand={brand.get('brand_name')}")
+        return
+
+    brand_name = brand.get("brand_name") or "your brand"
+    slug = brand.get("slug") or ""
+    frontend_url = os.environ.get("FRONTEND_URL", "https://unveiledthreads.co.uk").rstrip("/")
+    dashboard_url = f"{frontend_url}/brand/dashboard"
+    storefront_url = f"{frontend_url}/@{slug}" if slug else frontend_url
+
+    when = scheduled_at.strftime("%A %d %B at %H:%M UTC") if scheduled_at else "soon"
+
+    html_content = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+            <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;letter-spacing:1px;">UNVEILED THREADS</h1>
+            <hr style="border:1px solid #27272A;margin:16px 0;">
+            <p style="color:#39FF14;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 8px;">
+                You're up next
+            </p>
+            <h2 style="color:#fff;font-size:22px;margin:0 0 12px;">You'll be Brand of the Week — {esc(when)}</h2>
+            <p style="color:#9CA3AF;line-height:1.6;margin:0 0 16px;">
+                Hey {esc(owner_name)}, we've queued <strong style="color:#fff;">{esc(brand_name)}</strong> to
+                take the Brand of the Week slot at the top of Unveiled Threads.
+                Your storefront will be the first thing every visitor sees for the whole week.
+            </p>
+            <div style="border:1px solid #39FF14;background:#0A0A0A;padding:20px;margin:24px 0;">
+                <p style="color:#fff;font-size:15px;font-weight:bold;margin:0 0 12px;">Prep checklist</p>
+                <ul style="color:#9CA3AF;font-size:13px;line-height:1.7;margin:0;padding-left:20px;">
+                    <li>Stock levels — restock your bestsellers so they don't sell out day one</li>
+                    <li>Freshest product photos on your hero image (submit one for admin approval)</li>
+                    <li>Storefront tagline &amp; bio — this is prime shop-window real estate</li>
+                    <li>Tell your community: post to your socials so your fans catch the moment</li>
+                </ul>
+            </div>
+            <p style="color:#9CA3AF;line-height:1.6;margin:0 0 16px;">
+                <a href="{dashboard_url}" style="color:#39FF14;text-decoration:none;font-weight:bold;">Open your dashboard →</a>
+                &nbsp;·&nbsp;
+                <a href="{storefront_url}" style="color:#39FF14;text-decoration:none;font-weight:bold;">View your storefront →</a>
+            </p>
+            <p style="color:#6B7280;font-size:12px;line-height:1.6;">
+                Note: The Unveiled Threads admin team can veto or swap picks within a 24h window before the slot goes live.
+                In the rare case that happens, we'll let you know.
+            </p>
+            <hr style="border:1px solid #27272A;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+        </div>
+    """
+    try:
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": SENDER_EMAIL,
+            "to": [recipient_email],
+            "subject": "Unveiled Threads — You're up next as Brand of the Week",
+            "html": html_content,
+        })
+        logger.info(f"[BOTW QUEUED EMAIL SENT] To: {recipient_email} | brand={brand_name}")
+    except Exception as e:
+        logger.warning(f"[BOTW QUEUED EMAIL FAILED] To: {recipient_email} | Error: {e}")
+
+
+async def send_botw_promoted_email(brand: dict, ends_at: datetime) -> None:
+    """"You're now Brand of the Week!" email. Sent at rotation time."""
+    resolved = await _brand_owner_email(brand)
+    if not resolved:
+        return
+    recipient_email, owner_name = resolved
+
+    if not (RESEND_API_KEY and SENDER_EMAIL):
+        logger.info(f"[MOCK EMAIL — BOTW live] To: {recipient_email} | brand={brand.get('brand_name')}")
+        return
+
+    brand_name = brand.get("brand_name") or "your brand"
+    slug = brand.get("slug") or ""
+    frontend_url = os.environ.get("FRONTEND_URL", "https://unveiledthreads.co.uk").rstrip("/")
+    storefront_url = f"{frontend_url}/@{slug}" if slug else frontend_url
+    dashboard_url = f"{frontend_url}/brand/dashboard"
+
+    until = ends_at.strftime("%A %d %B") if ends_at else "next week"
+
+    html_content = f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+            <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;letter-spacing:1px;">UNVEILED THREADS</h1>
+            <hr style="border:1px solid #27272A;margin:16px 0;">
+            <p style="color:#39FF14;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 8px;">
+                Live now
+            </p>
+            <h2 style="color:#fff;font-size:26px;margin:0 0 12px;">{esc(brand_name)} is Brand of the Week</h2>
+            <p style="color:#9CA3AF;line-height:1.6;margin:0 0 20px;">
+                Congratulations {esc(owner_name)} — your storefront is now front-and-centre on Unveiled Threads
+                until <strong style="color:#fff;">{esc(until)}</strong>. Every visitor to the homepage sees you first.
+            </p>
+            <div style="text-align:center;margin:24px 0;">
+                <a href="{storefront_url}"
+                    style="display:inline-block;background:#39FF14;color:#000;text-decoration:none;font-weight:bold;
+                    padding:14px 28px;letter-spacing:0.1em;text-transform:uppercase;font-size:13px;">
+                    View your storefront →
+                </a>
+            </div>
+            <div style="border:1px solid #27272A;background:#0A0A0A;padding:20px;margin:24px 0;">
+                <p style="color:#fff;font-size:15px;font-weight:bold;margin:0 0 12px;">Make the week count</p>
+                <ul style="color:#9CA3AF;font-size:13px;line-height:1.7;margin:0;padding-left:20px;">
+                    <li>Share the link — Instagram stories, TikTok, group chats. This is your week.</li>
+                    <li>Watch stock — restock in real time before your bestsellers sell out.</li>
+                    <li>Reply fast — buyers messaging you now are hot leads.</li>
+                    <li>Check analytics in your dashboard to see what's converting.</li>
+                </ul>
+            </div>
+            <p style="color:#9CA3AF;line-height:1.6;margin:0 0 8px;">
+                <a href="{dashboard_url}" style="color:#39FF14;text-decoration:none;font-weight:bold;">Open your dashboard →</a>
+            </p>
+            <hr style="border:1px solid #27272A;margin:24px 0;">
+            <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+        </div>
+    """
+    try:
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": SENDER_EMAIL,
+            "to": [recipient_email],
+            "subject": "You're Unveiled Threads' Brand of the Week — go tell everyone",
+            "html": html_content,
+        })
+        logger.info(f"[BOTW PROMOTED EMAIL SENT] To: {recipient_email} | brand={brand_name}")
+    except Exception as e:
+        logger.warning(f"[BOTW PROMOTED EMAIL FAILED] To: {recipient_email} | Error: {e}")
+
+
+async def _load_brand_by_id(brand_id: str) -> Optional[dict]:
+    try:
+        return await db.brands.find_one({"_id": ObjectId(brand_id)})
+    except Exception:
+        return None
+
+
 # ============ THE LOOP ============
 
 async def _rotate(state: dict) -> dict:
@@ -232,18 +389,26 @@ async def _rotate(state: dict) -> dict:
         })
     history = history[-20:]  # keep last 20 rotations
 
+    ends_at = now + timedelta(days=ROTATION_INTERVAL_DAYS)
     new_state = {
         "current_brand_id": next_id,
         "current_started_at": now,
         "next_brand_id": None,
         "next_queued_at": None,
-        "next_scheduled_at": now + timedelta(days=ROTATION_INTERVAL_DAYS),
+        "next_scheduled_at": ends_at,
         "cycle_index": int(state.get("cycle_index", 0)) + 1,
         "history": history,
         "updated_at": now,
     }
     await db.botw_state.update_one({"_id": STATE_ID}, {"$set": new_state})
     logger.info(f"[BOTW] Rotated → brand={next_id}, cycle={new_state['cycle_index']}")
+
+    # Notify the winning brand. Fire-and-forget — email hiccups must not
+    # break the loop, so we swallow exceptions inside the helper.
+    promoted = await _load_brand_by_id(next_id)
+    if promoted:
+        await send_botw_promoted_email(promoted, ends_at)
+
     return {"_id": STATE_ID, **new_state}
 
 
@@ -274,6 +439,7 @@ async def _queue_next_if_due(state: dict) -> dict:
     }
     await db.botw_state.update_one({"_id": STATE_ID}, {"$set": update})
     await _notify_admins_of_pick(candidate, scheduled)
+    await send_botw_queued_email(candidate, scheduled)
     logger.info(f"[BOTW] Queued next → brand={candidate['_id']} at {now.isoformat()}")
     return {**state, **update}
 
@@ -391,12 +557,24 @@ async def admin_botw_veto(payload: BotwVeto, request: Request):
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
+    # Skip the notify if admin is re-vetoing to the same brand — no point
+    # spamming their inbox twice.
+    prev_state = await _get_state()
+    same_pick = prev_state.get("next_brand_id") == str(brand["_id"])
+
     now = datetime.now(_tz.utc)
     await db.botw_state.update_one(
         {"_id": STATE_ID},
         {"$set": {"next_brand_id": str(brand["_id"]), "next_queued_at": now, "updated_at": now}},
         upsert=True,
     )
+
+    if not same_pick:
+        scheduled = prev_state.get("next_scheduled_at") or (now + timedelta(days=ROTATION_INTERVAL_DAYS))
+        if scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=_tz.utc)
+        await send_botw_queued_email(brand, scheduled)
+
     return {"next_brand_id": str(brand["_id"]), "brand_name": brand.get("brand_name")}
 
 
@@ -408,6 +586,7 @@ async def admin_botw_skip_pick(request: Request):
     await require_admin(request)
     state = await _get_state()
     now = datetime.now(_tz.utc)
+    prev_next = state.get("next_brand_id")
     await db.botw_state.update_one(
         {"_id": STATE_ID},
         {"$set": {"next_brand_id": None, "next_queued_at": None, "updated_at": now}},
@@ -421,6 +600,13 @@ async def admin_botw_skip_pick(request: Request):
         {"_id": STATE_ID},
         {"$set": {"next_brand_id": str(candidate["_id"]), "next_queued_at": now, "updated_at": now}},
     )
+    # Email the newly-queued brand (unless it happens to be the exact same
+    # brand that was already queued — we already emailed them).
+    if str(candidate["_id"]) != prev_next:
+        scheduled = state.get("next_scheduled_at") or (now + timedelta(days=ROTATION_INTERVAL_DAYS))
+        if scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=_tz.utc)
+        await send_botw_queued_email(candidate, scheduled)
     return {"next_brand_id": str(candidate["_id"]), "brand_name": candidate.get("brand_name")}
 
 
