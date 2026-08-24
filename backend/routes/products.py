@@ -340,16 +340,21 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
     return updated
 
 @api_router.delete("/admin/brands/{brand_id}")
-async def admin_delete_brand(brand_id: str, request: Request):
-    """Admin-only: delete a brand and cascade-delete its products, reviews, comments,
-    wishlist entries, and unpaid orders. Demotes the brand owner back to a regular user.
-    Refuses if the brand has paid/shipped/delivered orders to protect customer data."""
+async def admin_delete_brand(brand_id: str, request: Request, delete_user: bool = False):
+    """Admin-only: delete a brand and cascade-delete its products, drafts, reviews,
+    comments, wishlist entries, and unpaid orders. Refuses if the brand has
+    paid/shipped/delivered orders (protect customer data).
+
+    By default the brand OWNER is demoted back to a regular user so their
+    buying history is preserved. Pass `?delete_user=true` to also hard-delete
+    the owner's account and every message/notification/conversation/file
+    tied to them (e.g. for wiping a demo brand entirely)."""
     await require_admin(request)
-    
+
     brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
-    
+
     paid_orders = await db.orders.count_documents({
         "brand_id": brand_id,
         "status": {"$in": SALE_STATUSES},
@@ -359,8 +364,9 @@ async def admin_delete_brand(brand_id: str, request: Request):
             status_code=400,
             detail=f"Refusing to delete: {paid_orders} paid/shipped order(s) exist for this brand. Resolve customer orders first.",
         )
-    
-    # Cascade
+
+    # Cascade — includes drafts because the products.delete_many query is
+    # unfiltered on status (drafts already carry the same brand_id).
     product_ids = [str(p["_id"]) async for p in db.products.find({"brand_id": brand_id}, {"_id": 1})]
     deleted_products = (await db.products.delete_many({"brand_id": brand_id})).deleted_count
     deleted_unpaid_orders = (await db.orders.delete_many({"brand_id": brand_id})).deleted_count
@@ -368,28 +374,74 @@ async def admin_delete_brand(brand_id: str, request: Request):
     if product_ids:
         await db.product_comments.delete_many({"product_id": {"$in": product_ids}})
         await db.wishlists.delete_many({"product_id": {"$in": product_ids}})
-    
+
     # Withdraw any pending brand applications from this user
     await db.brand_applications.delete_many({"user_id": brand["user_id"]})
-    
-    # Demote the brand owner back to buyer (preserves their user account + buying history)
+
+    # Owner handling: demote OR hard-delete based on flag.
     owner_id = brand.get("user_id")
+    deleted_user = False
     if owner_id:
-        await db.users.update_one(
-            {"_id": ObjectId(owner_id), "role": "brand"},
-            {"$set": {"role": "user"}},
-        )
-    
+        if delete_user:
+            # Full user wipe. Anything the user authored gets removed too.
+            try:
+                oid = ObjectId(owner_id)
+            except Exception:
+                oid = None
+            if oid:
+                # Drop messages the user sent + conversations they were part of.
+                await db.messages.delete_many({"sender_id": owner_id})
+                await db.conversations.delete_many({"participants": owner_id})
+                # Notifications addressed to them.
+                await db.notifications.delete_many({"user_id": owner_id})
+                # Reviews the user wrote as a buyer.
+                await db.reviews.delete_many({"reviewer_id": owner_id})
+                # Uploaded files they own (leaves orphan blobs in storage —
+                # acceptable trade-off vs. iterating the object store).
+                await db.files.delete_many({"user_id": owner_id})
+                # Any wishlist entries they had.
+                await db.wishlists.delete_many({"user_id": owner_id})
+                # Password-reset / email-change tokens.
+                await db.password_reset_tokens.delete_many({"user_id": owner_id})
+                await db.email_change_tokens.delete_many({"user_id": owner_id})
+                # Finally the user themselves.
+                await db.users.delete_one({"_id": oid})
+                deleted_user = True
+        else:
+            await db.users.update_one(
+                {"_id": ObjectId(owner_id), "role": "brand"},
+                {"$set": {"role": "user"}},
+            )
+
     await db.brands.delete_one({"_id": safe_object_id(brand_id)})
-    
+
     return {
         "message": f"Brand '{brand['brand_name']}' deleted",
         "deleted": {
             "products": deleted_products,
             "unpaid_orders": deleted_unpaid_orders,
             "reviews": deleted_reviews,
+            "user_account": deleted_user,
         },
     }
+
+
+@api_router.post("/admin/brands/{brand_id}/toggle-founding")
+async def admin_toggle_founding(brand_id: str, request: Request):
+    """Admin-only: flip the Founding Brand badge on a brand. Used to
+    correct historical mis-assignments (e.g. when a demo brand accidentally
+    consumed a founding slot) without hand-editing the DB."""
+    await require_admin(request)
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    new_val = not bool(brand.get("is_founding"))
+    await db.brands.update_one(
+        {"_id": safe_object_id(brand_id)},
+        {"$set": {"is_founding": new_val}},
+    )
+    return {"id": brand_id, "is_founding": new_val}
 
 
 @api_router.delete("/admin/products/{product_id}")

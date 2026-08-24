@@ -118,7 +118,7 @@ export default function AdminDashboard() {
   const handleDeleteBrand = async (brand) => {
     const confirmText = `delete ${brand.brand_name}`;
     const answer = window.prompt(
-      `This will permanently delete "${brand.brand_name}", all its products, reviews and unpaid orders.\n\nType "${confirmText}" to confirm:`
+      `HARD DELETE: This will permanently remove "${brand.brand_name}", its products & drafts, unpaid orders, reviews, AND the owner's user account, messages, notifications and files.\n\nType "${confirmText}" to confirm:`
     );
     if (answer !== confirmText) {
       if (answer !== null) alert('Confirmation text did not match. Brand was NOT deleted.');
@@ -126,10 +126,25 @@ export default function AdminDashboard() {
     }
     setDeletingId(`brand-${brand.id}`);
     try {
-      await axios.delete(`${API}/api/admin/brands/${brand.id}`, { withCredentials: true });
+      await axios.delete(`${API}/api/admin/brands/${brand.id}?delete_user=true`, { withCredentials: true });
       await fetchData();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to delete brand.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleToggleFounding = async (brand) => {
+    const nextState = !brand.is_founding;
+    const verb = nextState ? 'ADD' : 'REMOVE';
+    if (!window.confirm(`${verb} the Founding Brand badge on "${brand.brand_name}"?`)) return;
+    setDeletingId(`founding-${brand.id}`);
+    try {
+      await axios.post(`${API}/api/admin/brands/${brand.id}/toggle-founding`, {}, { withCredentials: true });
+      await fetchData();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to toggle founding flag.');
     } finally {
       setDeletingId(null);
     }
@@ -361,7 +376,7 @@ export default function AdminDashboard() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-white font-medium truncate">{brand.brand_name}</h3>
                       {brand.is_brand_of_week && (
                         <Crown className="w-4 h-4 text-[#39FF14]" />
@@ -369,15 +384,37 @@ export default function AdminDashboard() {
                       {brand.is_boosted && (
                         <Zap className="w-4 h-4 text-[#39FF14]" />
                       )}
+                      {brand.is_founding && (
+                        <span className="text-[9px] uppercase tracking-[0.15em] px-2 py-0.5 bg-white/5 border border-[#39FF14]/30 text-[#39FF14]" data-testid={`founding-flag-${brand.id}`}>
+                          Founding
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-[#9CA3AF]">{brand.location}</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap justify-end">
                     <Link to={`/brands/${brand.id}`}>
                       <Button variant="ghost" size="sm" className="text-[#9CA3AF] hover:text-white p-2">
                         <ExternalLink className="w-4 h-4" />
                       </Button>
                     </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`text-xs py-1 px-3 border rounded-none ${
+                        brand.is_founding
+                          ? 'border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/10'
+                          : 'border-[#39FF14]/40 text-[#39FF14] hover:bg-[#39FF14]/10'
+                      }`}
+                      onClick={() => handleToggleFounding(brand)}
+                      disabled={deletingId === `founding-${brand.id}`}
+                      data-testid={`toggle-founding-${brand.id}`}
+                      title={brand.is_founding ? 'Remove Founding Brand badge' : 'Mark as Founding Brand'}
+                    >
+                      {deletingId === `founding-${brand.id}`
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : brand.is_founding ? 'Un-Founding' : 'Make Founding'}
+                    </Button>
                     {!brand.is_brand_of_week && (
                       <Button 
                         className="btn-boost text-xs py-1 px-3"
