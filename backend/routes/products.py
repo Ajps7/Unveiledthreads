@@ -340,10 +340,12 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
     return updated
 
 @api_router.delete("/admin/brands/{brand_id}")
-async def admin_delete_brand(brand_id: str, request: Request, delete_user: bool = False):
+async def admin_delete_brand(brand_id: str, request: Request, delete_user: bool = False, force: bool = False):
     """Admin-only: delete a brand and cascade-delete its products, drafts, reviews,
     comments, wishlist entries, and unpaid orders. Refuses if the brand has
-    paid/shipped/delivered orders (protect customer data).
+    paid/shipped/delivered orders (protect customer data) unless `?force=true`
+    is passed — in which case paid orders are ALSO deleted (used for wiping
+    demo/test brands that accumulated fake orders during QA).
 
     By default the brand OWNER is demoted back to a regular user so their
     buying history is preserved. Pass `?delete_user=true` to also hard-delete
@@ -359,17 +361,22 @@ async def admin_delete_brand(brand_id: str, request: Request, delete_user: bool 
         "brand_id": brand_id,
         "status": {"$in": SALE_STATUSES},
     })
-    if paid_orders > 0:
+    if paid_orders > 0 and not force:
         raise HTTPException(
             status_code=400,
-            detail=f"Refusing to delete: {paid_orders} paid/shipped order(s) exist for this brand. Resolve customer orders first.",
+            detail=(
+                f"Refusing to delete: {paid_orders} paid/shipped order(s) exist for this brand. "
+                f"Resolve customer orders first, or add ?force=true to also delete them (demo brands only)."
+            ),
         )
 
     # Cascade — includes drafts because the products.delete_many query is
     # unfiltered on status (drafts already carry the same brand_id).
     product_ids = [str(p["_id"]) async for p in db.products.find({"brand_id": brand_id}, {"_id": 1})]
     deleted_products = (await db.products.delete_many({"brand_id": brand_id})).deleted_count
-    deleted_unpaid_orders = (await db.orders.delete_many({"brand_id": brand_id})).deleted_count
+    # When force=true this also wipes paid/shipped orders; otherwise the
+    # safety check above already ruled that out so it's just unpaid orders.
+    deleted_orders = (await db.orders.delete_many({"brand_id": brand_id})).deleted_count
     deleted_reviews = (await db.reviews.delete_many({"brand_id": brand_id})).deleted_count
     if product_ids:
         await db.product_comments.delete_many({"product_id": {"$in": product_ids}})
@@ -419,10 +426,41 @@ async def admin_delete_brand(brand_id: str, request: Request, delete_user: bool 
         "message": f"Brand '{brand['brand_name']}' deleted",
         "deleted": {
             "products": deleted_products,
-            "unpaid_orders": deleted_unpaid_orders,
+            "orders": deleted_orders,
             "reviews": deleted_reviews,
             "user_account": deleted_user,
+            "forced_paid_orders": paid_orders if force else 0,
         },
+    }
+
+
+@api_router.get("/admin/brands/{brand_id}/deletion-preview")
+async def admin_brand_deletion_preview(brand_id: str, request: Request):
+    """Return counts of what would be wiped if this brand were deleted with
+    `force=true, delete_user=true`. Lets the UI show a clear 'this is what
+    will happen' summary before the admin confirms."""
+    await require_admin(request)
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    paid_orders = await db.orders.count_documents({
+        "brand_id": brand_id,
+        "status": {"$in": SALE_STATUSES},
+    })
+    total_orders = await db.orders.count_documents({"brand_id": brand_id})
+    products = await db.products.count_documents({"brand_id": brand_id})
+    drafts = await db.products.count_documents({"brand_id": brand_id, "status": "draft"})
+    reviews = await db.reviews.count_documents({"brand_id": brand_id})
+
+    return {
+        "brand_name": brand.get("brand_name"),
+        "products": products,
+        "drafts": drafts,
+        "paid_orders": paid_orders,
+        "unpaid_orders": total_orders - paid_orders,
+        "reviews": reviews,
+        "has_owner_user": bool(brand.get("user_id")),
     }
 
 

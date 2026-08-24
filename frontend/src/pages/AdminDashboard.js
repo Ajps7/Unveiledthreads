@@ -116,17 +116,47 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteBrand = async (brand) => {
-    const confirmText = `delete ${brand.brand_name}`;
+    // Fetch a deletion preview first so the admin sees exactly what will be
+    // wiped — especially any paid orders that need `?force=true` to bypass
+    // the safety guard.
+    let preview;
+    try {
+      const res = await axios.get(
+        `${API}/api/admin/brands/${brand.id}/deletion-preview`,
+        { withCredentials: true },
+      );
+      preview = res.data;
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to fetch deletion preview.');
+      return;
+    }
+
+    const summary = [
+      `Products: ${preview.products} (of which ${preview.drafts} drafts)`,
+      `Paid/shipped orders: ${preview.paid_orders}`,
+      `Unpaid orders: ${preview.unpaid_orders}`,
+      `Reviews: ${preview.reviews}`,
+      `Owner user account: ${preview.has_owner_user ? 'yes — will be deleted' : 'none'}`,
+    ].join('\n');
+
+    const needsForce = preview.paid_orders > 0;
+    const requiredText = needsForce ? `force delete ${brand.brand_name}` : `delete ${brand.brand_name}`;
+    const preface = needsForce
+      ? `WARNING: This brand has ${preview.paid_orders} paid/shipped order(s). Forcing delete WILL also wipe those order records — only do this for demo/test brands.\n\n`
+      : '';
+
     const answer = window.prompt(
-      `HARD DELETE: This will permanently remove "${brand.brand_name}", its products & drafts, unpaid orders, reviews, AND the owner's user account, messages, notifications and files.\n\nType "${confirmText}" to confirm:`
+      `${preface}HARD DELETE "${brand.brand_name}":\n\n${summary}\n\nAll of the above will be permanently removed.\n\nType "${requiredText}" to confirm:`,
     );
-    if (answer !== confirmText) {
+    if (answer !== requiredText) {
       if (answer !== null) alert('Confirmation text did not match. Brand was NOT deleted.');
       return;
     }
+
     setDeletingId(`brand-${brand.id}`);
     try {
-      await axios.delete(`${API}/api/admin/brands/${brand.id}?delete_user=true`, { withCredentials: true });
+      const qs = `?delete_user=true${needsForce ? '&force=true' : ''}`;
+      await axios.delete(`${API}/api/admin/brands/${brand.id}${qs}`, { withCredentials: true });
       await fetchData();
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to delete brand.');
