@@ -6,7 +6,9 @@ from routes.products import CATEGORIES  # canonical list; keep drafts inside it
 
 import csv
 import io
+import ipaddress
 import re
+import socket
 from urllib.parse import urlparse
 
 # ============ CSV IMPORT CONSTANTS ============
@@ -14,10 +16,21 @@ MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024        # 5 MB cap on the CSV itself
 MAX_IMPORT_PRODUCTS = 200                       # per-file product cap
 MAX_IMAGES_PER_PRODUCT = 10                     # matches ProductCreate.images cap
 MAX_SIZES_PER_PRODUCT = 15                      # matches ProductCreate.sizes cap
-MAX_IMAGE_FETCH_BYTES = 5 * 1024 * 1024         # match MAX_IMAGE_SIZE for parity
+MAX_IMAGE_FETCH_BYTES = 8 * 1024 * 1024         # match MAX_IMAGE_SIZE (8MB) for parity
 IMAGE_FETCH_TIMEOUT = 20                        # seconds per remote image
 # Only allow http(s) hosts. Rejects file://, javascript:, gopher:, etc.
 ALLOWED_IMAGE_SCHEMES = {"http", "https"}
+# SSRF defence: only allow the standard web ports. Rejects http://host:6379/…
+# (Redis), :27017 (Mongo), :22 (SSH), etc. Empty port = default port for scheme.
+ALLOWED_IMAGE_PORTS = {80, 443, None}
+# Cloud-metadata endpoints — explicitly blocklisted on top of the generic
+# link-local / private-IP guards. Belt-and-braces vs. is_link_local.
+CLOUD_METADATA_HOSTS = {
+    "169.254.169.254",              # AWS, GCP, Azure IMDS v1/v2
+    "fd00:ec2::254",                # AWS IPv6 IMDS
+    "metadata.google.internal",     # GCP alias
+    "metadata",                     # k8s / IMDS alias
+}
 
 
 # ---- Column-name → canonical-field mapping ----
@@ -150,6 +163,88 @@ def _valid_external_image_url(url: str) -> bool:
     return parsed.scheme in ALLOWED_IMAGE_SCHEMES and bool(parsed.netloc)
 
 
+def _is_safe_public_url(url: str) -> bool:
+    """SSRF gate: return True only if `url` (a) parses to an http(s) URL on a
+    standard web port, (b) resolves to public/global IPs on every A/AAAA
+    record, and (c) isn't a known cloud-metadata alias.
+
+    Blocks: loopback (127.x, ::1), link-local (169.254.x — covers AWS/GCP/Azure
+    IMDS), private (10.x, 172.16/12, 192.168.x, fc00::/7), reserved,
+    multicast, unspecified, and any explicit non-80/443 port. Fails closed:
+    if DNS resolution or parsing throws for any reason, we return False and
+    the fetch is skipped.
+
+    NOTE: this is the pre-flight destination check called before every
+    outbound HTTP request in the CSV importer. To keep redirect-based SSRF
+    off the table, the fetcher itself must NOT follow redirects."""
+    if not _valid_external_image_url(url):
+        return False
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return False
+
+    # Explicit blocklist first — cheaper than DNS resolution, and catches
+    # attackers who bypass IP checks with metadata.google.internal etc.
+    if hostname in CLOUD_METADATA_HOSTS:
+        logger.warning(f"[SSRF] Blocked known metadata host: {hostname}")
+        return False
+
+    # Only standard web ports. parsed.port is None when the URL omits it
+    # (uses the scheme default) — which we accept.
+    if parsed.port is not None and parsed.port not in ALLOWED_IMAGE_PORTS:
+        logger.warning(f"[SSRF] Blocked non-standard port: {parsed.port} on {hostname}")
+        return False
+
+    # Resolve every A/AAAA record. Any single non-public address = reject.
+    # Using getaddrinfo (not gethostbyname) so we see IPv6 too.
+    try:
+        infos = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+    except Exception as e:
+        logger.warning(f"[SSRF] DNS resolution failed for {hostname}: {e}")
+        return False
+
+    if not infos:
+        return False
+
+    for _family, _type, _proto, _canon, sockaddr in infos:
+        ip_str = sockaddr[0]
+        # Strip IPv6 zone-id suffix if present (e.g. "fe80::1%eth0").
+        if "%" in ip_str:
+            ip_str = ip_str.split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            logger.warning(f"[SSRF] Unparseable IP for {hostname}: {ip_str}")
+            return False
+
+        # Belt-and-braces: cloud metadata IPs, even if they somehow slipped
+        # past hostname blocklist via CNAME.
+        if str(ip) in CLOUD_METADATA_HOSTS:
+            logger.warning(f"[SSRF] Blocked metadata IP {ip} for {hostname}")
+            return False
+
+        # The main filter. Note is_link_local covers 169.254.0.0/16 (AWS/GCP
+        # IMDS), is_private covers 10/8, 172.16/12, 192.168/16, fc00::/7,
+        # is_loopback covers 127/8 and ::1.
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            logger.warning(f"[SSRF] Blocked non-public IP {ip} for {hostname}")
+            return False
+
+    return True
+
+
 def _guess_mime_from_bytes(data: bytes) -> Optional[str]:
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
@@ -181,11 +276,24 @@ async def _fetch_and_store_external_image(url: str, brand_id: str, user_id: str)
     """
     if not _valid_external_image_url(url):
         return None
+    # SSRF gate: resolve the hostname and refuse if any resolved IP is
+    # private/loopback/link-local/etc. Runs BEFORE the network call.
+    if not _is_safe_public_url(url):
+        return None
     try:
-        # Blocking HTTP call, but this endpoint is inherently slow (fetches
-        # dozens of images) so we accept the latency rather than pull in an
-        # async HTTP client just for this one path.
-        resp = http_requests.get(url, timeout=IMAGE_FETCH_TIMEOUT, stream=True)
+        # allow_redirects=False is the key redirect-based-SSRF defence: a
+        # public URL that 302's to 169.254.169.254 would otherwise bypass
+        # the pre-check above. If a legitimate source uses redirects, the
+        # brand can point us at the final CDN URL directly.
+        resp = http_requests.get(
+            url,
+            timeout=IMAGE_FETCH_TIMEOUT,
+            stream=True,
+            allow_redirects=False,
+        )
+        if 300 <= resp.status_code < 400:
+            logger.warning(f"[CSV-IMPORT] Refusing to follow redirect for {url} → {resp.headers.get('Location')}")
+            return None
         resp.raise_for_status()
         # Stream so we can hard-cap the total downloaded bytes.
         chunks = []
@@ -666,14 +774,16 @@ async def bulk_delete_drafts(payload: BulkDeleteDrafts, request: Request):
     if not brand:
         raise HTTPException(status_code=404, detail="Brand profile not found")
 
-    # Sanitise + coerce. Invalid ObjectIds are silently dropped rather
-    # than 400'ing — a mixed batch of good IDs shouldn't fail as a whole.
+    # Sanitise + coerce. Any single malformed ObjectId in the batch fails
+    # the whole request with a 400 — mixing valid + invalid IDs almost
+    # always signals a client bug or a tampered request, and swallowing
+    # bad IDs silently would make that impossible to debug.
     valid_object_ids = []
     for pid in payload.ids:
         try:
             valid_object_ids.append(ObjectId(pid))
         except Exception:
-            continue
+            raise HTTPException(status_code=400, detail=f"Invalid product ID in batch: {pid!r}")
     if not valid_object_ids:
         raise HTTPException(status_code=400, detail="No valid draft IDs supplied")
 
