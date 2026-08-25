@@ -93,7 +93,7 @@ export function EditListingDialog({ editProduct, editForm, setEditForm, saving, 
               onChange={(next) => setEditForm({ ...editForm, images: next })}
             />
             <div className="mt-3">
-              <ImageUpload multiple label="Upload More" onUpload={(urls) => setEditForm({ ...editForm, images: [...(editForm.images || []), ...urls] })} />
+              <ImageUpload multiple stageBeforeUpload maxImages={Math.max(1, 10 - (editForm.images || []).length)} label="Choose photos from device" onUpload={(urls) => setEditForm({ ...editForm, images: [...(editForm.images || []), ...urls] })} />
             </div>
           </div>
           <div className="flex gap-3 pt-2">

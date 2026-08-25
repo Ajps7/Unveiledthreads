@@ -15,7 +15,7 @@ export function ProductPhotos({ images, onUpload, onRemove }) {
         Photos
       </h2>
       <p className="text-xs text-[#9CA3AF] mb-4">
-        Upload clear, well-lit photos on a plain background. First image is the cover. Max 5MB each, JPEG/PNG/WebP.
+        Upload clear, well-lit photos on a plain background. First image is the cover. Pick straight from your camera roll — preview them and remove any before you upload. Max 8MB each, JPEG/PNG/WebP.
       </p>
 
       {images.length > 0 && (
@@ -41,7 +41,9 @@ export function ProductPhotos({ images, onUpload, onRemove }) {
 
       <ImageUpload
         multiple
-        label={images.length > 0 ? 'Upload More Photos' : 'Upload Photos'}
+        stageBeforeUpload
+        maxImages={Math.max(1, 10 - images.length)}
+        label={images.length > 0 ? 'Choose more photos' : 'Choose photos from device'}
         onUpload={onUpload}
       />
     </div>

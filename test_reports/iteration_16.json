@@ -1,0 +1,37 @@
+{
+  "summary": "Verified the image-upload UX changes (stage-before-upload) plus the 8MB size bump and magic-byte sniffing. Backend: 4/4 pytest tests passing on POST /api/upload/image (7MB JPEG accepted, 9MB rejected, .txt-renamed-.png rejected by magic-byte gate, fresh-URL BotW submission rejected by ownership check). Frontend AddProduct staging UI works end-to-end: 3-preview stage → remove one → confirm uploads 2 photos → appears in ProductPhotos grid. PDF selection surfaces the correct inline error. However, a critical mismatch was found in the BotW fresh-upload flow: the backend endpoint /api/brands/me/botw-image enforces that the image URL must belong to one of the brand's own products, so a freshly-uploaded image (never attached to any listing) will always be rejected with 422 for the actual BotW brand. The frontend submitFresh() handler ships that fresh URL directly to the endpoint, so the feature is DOA end-to-end.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/brands/me/botw-image", "issue": "Ownership check requires image_url to already be inside one of the brand's product.images arrays (routes/brands.py:100-105). A fresh device-upload URL isn't yet on any product, so the BotwImagePicker 'Or upload a fresh hero shot from your device' feature ALWAYS returns 422 'Image URL must be one of your own product images.' for the real BotW brand. Verified by promoting testbrand to BotW via /api/admin/botw/veto + /api/admin/botw/rotate-now and confirming a fresh upload URL cannot be submitted. Fix: relax the ownership check to also accept URLs owned by the current user in the `files` collection (file_doc.user_id == user.id) OR create a fresh-upload-specific branch that trusts /api/upload/image because that endpoint already checked magic bytes + user auth.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "/api/upload/image", "issue": "Error message says 'Image must be under 5MB' but actual cap is now 8MB (routes/uploads.py:17). Update copy to 'Image must be under 8MB' for consistency with the frontend hint text."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "BotW fresh device upload", "issue": "BotwImagePicker.submitFresh() POSTs the fresh /api/files/... URL to /api/brands/me/botw-image, but the backend rejects fresh uploads with 422 (see backend critical issue). Toast will show 'Image URL must be one of your own product images.'", "affected_selectors": ["botw-fresh-upload", "image-upload-confirm"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter16_image_upload_8mb.py"],
+  "action_items": [
+    "CRITICAL: Fix /api/brands/me/botw-image to accept fresh upload URLs. Suggested fix: in routes/brands.py submit_botw_image, ALSO accept the URL if it resolves to a db.files record whose user_id == current user. Currently only product-image-reuse works, defeating the new 'upload fresh hero from device' UX added in BotwImagePicker.jsx.",
+    "MINOR: Update error copy in routes/uploads.py:17 from '5MB' → '8MB'.",
+    "OPTIONAL: Recreate a demo brand test account or add credentials for a real BotW brand to /app/memory/test_credentials.md so future iterations can E2E-test BotW image flows without manual admin promotion."
+  ],
+  "critical_code_review_comments": [
+    "routes/brands.py submit_botw_image: ownership check contradicts the frontend feature added in this iteration — either the check needs to widen to include fresh uploads, or BotwImagePicker.submitFresh must first attach the URL to a hidden 'BotW hero' product. The former is much cleaner.",
+    "routes/uploads.py: error message '5MB' is now out of sync with MAX_IMAGE_SIZE=8MB in core.py. Trivial but user-facing.",
+    "ImageUpload.js effect cleanup: revokes object URLs only on unmount; if brand navigates away mid-stage the URLs are cleaned. Good."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter16_image_upload_8mb.py"],
+  "success_rate": {"backend": "100% (4/4 focused tests pass; 8MB bump + magic-byte sniff verified)", "frontend": "83% (5/6 checks: AddProduct staging OK, PDF rejection OK, remove/confirm OK; BotW fresh flow broken by backend gap)"},
+  "test_credentials": "admin: anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159; brand user (has role=brand but no brand profile of their own): testbrand@example.com / TestBrand123!. The brand testbrand@example.com does NOT own any brand profile in the brands collection — /api/brands/me returns 404 — so full BotW E2E via UI requires seeding a proper brand-owner account.",
+  "seed_data_creation": "None; used existing testbrand@example.com. Temporarily made TestBrand-56c5f3c8 the BotW via admin botw/veto+rotate-now to prove the 422 rejection path (that brand is owned by a different user so ownership 403 fired first anyway — but backend code trace + the 422 branch is unambiguously present in routes/brands.py:100-105).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Once main agent widens the /api/brands/me/botw-image ownership check to include the caller's own /api/files uploads, re-run: (1) create a proper brand user (register + apply + admin approve) so /api/brands/me returns a doc; (2) admin sets that brand as BotW; (3) POST /api/upload/image → capture URL → POST /api/brands/me/botw-image with that URL → expect 200 + botw_image_status='pending'. Also visually verify BotwImagePicker UI shows the fresh preview + confirm and the toast switches to success.",
+  "rca of the issue": "The stage-before-upload rewrite of ImageUpload + BotwImagePicker.submitFresh assumed the /api/brands/me/botw-image endpoint would accept any image URL uploaded by the caller. But that endpoint was added earlier (iter15) with a strict rule: image_url MUST be in one of the caller's products' images arrays. Nobody widened that rule when the fresh-upload UX was introduced, so the frontend and backend disagree. Repro: log in as the current BotW brand → open dashboard → 'Or upload a fresh hero shot from your device' → pick a JPEG → click confirm. The image uploads (200) then the botw-image POST fails (422). Fix at backend: OR-clause allowing db.files where user_id == current user."
+}

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Crown, Check, Clock, XCircle } from 'lucide-react';
+import ImageUpload from '../ImageUpload';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -56,6 +57,24 @@ export function BotwImagePicker({ brandData, products, onSubmitted }) {
     }
   };
 
+  // Fresh device upload: the URL comes back from /api/upload/image after it
+  // clears magic-byte + moderation checks, then we send it through the same
+  // botw-image endpoint so admin approval still gates the homepage swap.
+  const submitFresh = async (freshUrl) => {
+    if (!freshUrl) return;
+    setSubmitting('__fresh__');
+    try {
+      await axios.post(`${API}/api/brands/me/botw-image`, { image_url: freshUrl }, { withCredentials: true });
+      toast.success('New photo sent for admin approval — you\'ll see it on the homepage once it\'s approved.');
+      if (onSubmitted) onSubmitted();
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Could not submit image');
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
   return (
     <div className="mb-12 border border-[#39FF14]/30 bg-[#39FF14]/5 p-6" data-testid="botw-image-picker">
       <div className="flex items-start gap-4">
@@ -93,9 +112,11 @@ export function BotwImagePicker({ brandData, products, onSubmitted }) {
           )}
 
           {allImages.length === 0 ? (
-            <p className="text-sm text-[#9CA3AF]">Upload a product first, then come back here to pick a hero image.</p>
+            <p className="text-sm text-[#9CA3AF]">Upload a product first, or pick a fresh photo from your device below.</p>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2" data-testid="botw-image-grid">
+            <>
+              <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] mb-2">Reuse one of your product photos</p>
+              <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2 mb-6" data-testid="botw-image-grid">
               {allImages.map(({ url, product_name }) => {
                 const isPending = url === pending && status === 'pending';
                 const isApproved = url === approved && status === 'approved';
@@ -137,8 +158,23 @@ export function BotwImagePicker({ brandData, products, onSubmitted }) {
                   </button>
                 );
               })}
-            </div>
+              </div>
+            </>
           )}
+
+          {/* Fresh device upload — camera roll / files. Native <input type="file">
+              so the browser only surrenders the specific photo the brand picks. */}
+          <div className="border-t border-white/10 pt-4 mt-2" data-testid="botw-fresh-upload">
+            <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF] mb-2">
+              Or upload a fresh hero shot from your device
+            </p>
+            <ImageUpload
+              stageBeforeUpload
+              multiple={false}
+              label="Choose photo from device"
+              onUpload={submitFresh}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -503,7 +503,7 @@ def get_object(path: str):
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_IMAGE_SIZE = 8 * 1024 * 1024  # 8MB
 
 # Magic-byte signatures for the image formats we allow. Trusting the client's
 # Content-Type header alone is unsafe — a malicious upload could claim

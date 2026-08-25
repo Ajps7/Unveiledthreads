@@ -94,15 +94,37 @@ async def submit_botw_image(payload: BotwImageChoice, request: Request):
     if not brand.get("is_brand_of_week"):
         raise HTTPException(status_code=403, detail="Only the current Brand of the Week can set a homepage image.")
 
-    # The submitted URL must belong to one of this brand's own products —
-    # closes an obvious hole where a BotW could point at any image on the
-    # internet (or another brand's photography).
-    owned = await db.products.find_one({
+    # Ownership gate. Accept the URL if EITHER (a) it's already on one of
+    # the brand's product images (legacy "reuse your product photo" flow),
+    # OR (b) it's a fresh /api/files/... upload made by this same user (the
+    # new "upload a hero shot from your device" flow). Both prove the brand
+    # owns the imagery — closes the "point at any URL on the internet" hole
+    # while allowing fresh device uploads to reach admin approval.
+    is_owned = False
+
+    owned_product = await db.products.find_one({
         "brand_id": str(brand["_id"]),
         "images": payload.image_url,
     })
-    if not owned:
-        raise HTTPException(status_code=422, detail="Image URL must be one of your own product images.")
+    if owned_product:
+        is_owned = True
+    elif payload.image_url.startswith("/api/files/"):
+        # Fresh upload path: the URL was minted by /api/upload/image which
+        # already recorded the user_id + magic-byte-checked the bytes.
+        storage_path = payload.image_url[len("/api/files/"):]
+        file_doc = await db.files.find_one({
+            "storage_path": storage_path,
+            "user_id": user["id"],
+            "is_deleted": {"$ne": True},
+        })
+        if file_doc:
+            is_owned = True
+
+    if not is_owned:
+        raise HTTPException(
+            status_code=422,
+            detail="Image URL must be one of your own product images or a fresh upload you made.",
+        )
 
     await db.brands.update_one(
         {"_id": brand["_id"]},
