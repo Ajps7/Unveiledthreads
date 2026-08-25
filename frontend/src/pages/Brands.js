@@ -24,7 +24,9 @@ export default function Brands() {
     try {
       const [brandsRes, bowRes] = await Promise.all([
         axios.get(`${API}/api/brands`),
-        axios.get(`${API}/api/brands/brand-of-week`).catch(() => ({ data: null }))
+        axios.get(`${API}/api/brands/brand-of-week?t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        }).catch(() => ({ data: null }))
       ]);
       setBrands(brandsRes.data);
       setBrandOfWeek(bowRes.data);

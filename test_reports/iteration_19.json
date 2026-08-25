@@ -1,0 +1,23 @@
+{
+  "summary": "Iter19 client-side cache-bust fix verified. Backend 14/14 pytest pass (/app/backend/tests/test_iter19_client_cache_bust.py) + Playwright network interception on Home + Brands both confirm the fix is live. Home.js /brand-of-week fetches now hit `${API}/api/brands/brand-of-week?t=<epoch>` with Cache-Control: no-cache + Pragma: no-cache request headers; Brands.js does the same. Every mount produces a fresh `t` value (proved with multiple navigations). BotW hero <img> on Home renders the approved /api/files/.../<uuid>.png URL (Analytics Test Brand, MINASEONG image). Backend accepts the ?t=<epoch> query param cleanly (200) and continues to send Cache-Control: no-store,no-cache,must-revalidate on the response (iter18 headers intact). Weird t values (t=0, t=abc, huge int, duplicate keys) all 200. Full submit->approve->GET roundtrip still writes featured_image. Iter17 SSRF hardening + iter18 admin BotW queue/rotate/skip/veto all still work.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter19_client_cache_bust.py",
+    "/app/test_reports/pytest/iter19.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Brands.js hero <img> still uses only `brandOfWeek.banner_url || <unsplash>` (line 119). It ignores `featured_image`. If a brand's approved BotW image should show on the /brands page hero too, Brands.js needs the same featured_image fallback chain as Home.js lines 130-135. Currently, /brands will show banner_url (or stock) even after admin approves a BotW hero. Not blocking this iter (task only asked to verify cache-bust on the fetch, which is correct) but likely a follow-up.",
+    "Cache-buster works as defence-in-depth on top of server no-store. Good approach. Home.js comment (lines 48-52) accurately explains rationale.",
+    "Both Home.js and Brands.js call `Date.now()` in the fetchData body; since useEffect deps are [] this runs once per mount which is correct behaviour."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (4/4 checks)"},
+  "test_credentials": "admin=Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159; brand=testbrand@example.com / TestBrand123!",
+  "seed_data_creation": "Uploaded one fresh 1x1 PNG during roundtrip test and left it approved as BotW image for 'Analytics Test Brand'. Homepage BotW hero verified rendering /api/files/.../91dc19e1-8121-45ef-a3b8-da4871d20758.png (the previously-approved MINASEONG-sized asset — approve flow overwrote it during the roundtrip test but final visible image is the approved one).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter19 fix = client-side cache-bust on /brand-of-week fetch (Home.js + Brands.js). Any future changes to those files should preserve `?t=${Date.now()}` and the two request headers. Backend endpoint tolerates arbitrary query params. If Brands.js is updated to also show featured_image, add a network-interception + <img> src assertion for /brands like the one for Home in iter19 Playwright.",
+  "rca of the issue": "Users who visited the site before the iter18 server-side no-store fix still had a cached JSON response for /brand-of-week without a Cache-Control header. Browsers keep that cached until URL changes or TTL elapses, so even after admin approved a new BotW image, those users saw stale data. Iter19 fix appends ?t=<Date.now()> and sends Cache-Control:no-cache + Pragma:no-cache request headers, forcing a fresh request URL on every mount — invalidates any pre-existing browser cache and future ISP/intermediary caches. Verified via Playwright request interception (URLs contain ?t=<epoch>, both headers present, unique t per mount) and backend pytest (endpoint accepts the extra query param + still returns no-store response header)."
+}

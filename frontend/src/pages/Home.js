@@ -45,8 +45,15 @@ export default function Home() {
 
   const fetchData = async () => {
     try {
+      // Force browsers/CDNs to re-validate the BotW response — some users
+      // still have a stale cached JSON from before the no-store fix landed
+      // (which is exactly why "I approved the image but the site still
+      // shows the old one" reports keep coming in). The rest of these
+      // endpoints don't change second-to-second so they're fine to cache.
       const [bowRes, boostedRes, catRes, prodRes] = await Promise.all([
-        axios.get(`${API}/api/brands/brand-of-week`),
+        axios.get(`${API}/api/brands/brand-of-week?t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+        }),
         axios.get(`${API}/api/brands/boosted`),
         axios.get(`${API}/api/categories`),
         axios.get(`${API}/api/products?limit=8`)
