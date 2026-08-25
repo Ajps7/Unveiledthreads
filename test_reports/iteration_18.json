@@ -1,0 +1,26 @@
+{
+  "summary": "Verified iter18 BotW cache-control fix. Backend + frontend both green. 8/8 pytest cases pass in /app/backend/tests/test_iter18_botw_cache.py: (1) unauthenticated GET /api/brands/brand-of-week returns Cache-Control: no-store, no-cache, must-revalidate + Pragma: no-cache + Expires: 0; (2) HEAD returns same header; (3) full submit->approve round trip — brand submits fresh /api/files/... upload, admin approves, GET /brand-of-week immediately exposes it as featured_image; (4) reject flow leaves featured_image unchanged; (5) admin /admin/botw-image/queue reachable; (6-8) SSRF hardening still blocks 169.254.169.254, localhost, 127.0.0.1 on /api/products/import/csv (422). Frontend Playwright test on / (Home.js) confirms the brand-of-week hero <img> src equals ${REACT_APP_BACKEND_URL}/api/files/.../<uuid>.png — NOT the banner_url and NOT the Unsplash stock fallback.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter18_botw_cache.py",
+    "/app/test_reports/pytest/iter18.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/brands.py get_brand_of_week correctly sets no-store, no-cache, must-revalidate, Pragma and Expires — matches HTTP/1.0 + HTTP/1.1 caches. Ingress/CDN in front will also see the header and won't cache.",
+    "Response body shape unchanged; featured_image only exposed when botw_image_status == 'approved'. Pending image intentionally hidden. Good.",
+    "Consider adding Vary: Cookie if this endpoint ever becomes user-personalised — currently public so not needed.",
+    "Minor: Home.js uses fallback chain featured_image -> banner_url -> Unsplash stock URL. Works, but the /brand-of-week response does not include an is_cache_bust query param; browsers now revalidate on every render thanks to no-store, so no client-side bust needed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter18_botw_cache.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
+  "test_credentials": "admin=Anthonygeorgiades@unveiledthreads.co.uk / Babablacksheep159; brand=testbrand@example.com / TestBrand123!",
+  "seed_data_creation": "During testing, submitted 3 fresh PNG uploads as BotW hero for 'Analytics Test Brand' (currently BotW). Final state left approved so homepage displays the fresh /api/files/.../eaed118c-....png image. Safe to leave in place; can be replaced anytime via the same flow.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Analytics Test Brand (testbrand@example.com) is currently BotW with an approved botw_featured_image_approved pointing at a small 1x1 PNG. GET /api/brands/brand-of-week is now guaranteed uncached — no-store/no-cache/must-revalidate + Pragma + Expires: 0. If future iterations touch this endpoint, keep the Response header block at line 63-65 of routes/brands.py.",
+  "rca of the issue": "Original bug: browsers/CDN cached the /brand-of-week JSON so newly approved image URL wasn't visible on the homepage until TTL expired. Fix: FastAPI Response param + explicit Cache-Control: no-store, no-cache, must-revalidate, max-age=0 headers. Verified with curl -I, requests, and Playwright render check."
+}

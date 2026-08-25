@@ -55,7 +55,15 @@ async def get_founding_spots():
     }
 
 @api_router.get("/brands/brand-of-week")
-async def get_brand_of_week():
+async def get_brand_of_week(response: Response):
+    # Never cache — this response changes the second admin approves a new
+    # hero image or the weekly rotation flips. Any CDN/browser cache here
+    # results in "I approved the new photo but the homepage still shows
+    # the old one" bug reports.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     brand = await db.brands.find_one({"is_brand_of_week": True})
     if not brand:
         # Return most recently boosted brand as fallback
