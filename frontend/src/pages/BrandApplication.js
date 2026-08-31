@@ -44,6 +44,51 @@ const UK_LOCATIONS = [
   'Other UK'
 ];
 
+// Countries the platform's Stripe Connect Express supports. Kept in sync
+// with STRIPE_SUPPORTED_COUNTRIES on the backend. UK first, then EEA/EFTA
+// alphabetically, then a small tail of other common Stripe countries.
+const STRIPE_COUNTRIES = [
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'AT', name: 'Austria' },
+  { code: 'BE', name: 'Belgium' },
+  { code: 'BG', name: 'Bulgaria' },
+  { code: 'HR', name: 'Croatia' },
+  { code: 'CY', name: 'Cyprus' },
+  { code: 'CZ', name: 'Czech Republic' },
+  { code: 'DK', name: 'Denmark' },
+  { code: 'EE', name: 'Estonia' },
+  { code: 'FI', name: 'Finland' },
+  { code: 'FR', name: 'France' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'GR', name: 'Greece' },
+  { code: 'HU', name: 'Hungary' },
+  { code: 'IS', name: 'Iceland' },
+  { code: 'IE', name: 'Ireland' },
+  { code: 'IT', name: 'Italy' },
+  { code: 'LV', name: 'Latvia' },
+  { code: 'LI', name: 'Liechtenstein' },
+  { code: 'LT', name: 'Lithuania' },
+  { code: 'LU', name: 'Luxembourg' },
+  { code: 'MT', name: 'Malta' },
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'NO', name: 'Norway' },
+  { code: 'PL', name: 'Poland' },
+  { code: 'PT', name: 'Portugal' },
+  { code: 'RO', name: 'Romania' },
+  { code: 'SK', name: 'Slovakia' },
+  { code: 'SI', name: 'Slovenia' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'SE', name: 'Sweden' },
+  { code: 'CH', name: 'Switzerland' },
+  { code: 'US', name: 'United States' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'NZ', name: 'New Zealand' },
+  { code: 'JP', name: 'Japan' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'HK', name: 'Hong Kong' },
+];
+
 export default function BrandApplication() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -57,7 +102,14 @@ export default function BrandApplication() {
     instagram_handle: '',
     website: '',
     location: '',
-    category: ''
+    category: '',
+    // Marketplace identity — always UK for this platform. Kept as a field
+    // rather than a constant so an admin can override if we ever expand.
+    market: 'UK',
+    // ISO-3166-1 alpha-2 of the country where the business is REGISTERED
+    // and BANKED. Sent verbatim to Stripe Account.create (immutable
+    // post-create). Defaults to GB so the common case is one-click.
+    stripe_country: 'GB',
   });
 
   const handleSubmit = async (e) => {
@@ -217,7 +269,7 @@ export default function BrandApplication() {
           {/* Location */}
           <div>
             <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
-              Location (UK) *
+              Where you operate (UK) *
             </label>
             <Select 
               value={formData.location} 
@@ -235,6 +287,35 @@ export default function BrandApplication() {
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-[10px] text-[#6B7280] mt-1.5">
+              Where your brand operates in the UK. Buyers see this as your city — you'll still be shown as a UK brand for curation.
+            </p>
+          </div>
+
+          {/* Stripe / banking country — decoupled from operating region */}
+          <div>
+            <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
+              Business registration &amp; banking country *
+            </label>
+            <Select
+              value={formData.stripe_country}
+              onValueChange={(value) => setFormData({ ...formData, stripe_country: value })}
+              required
+            >
+              <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="stripe-country-select">
+                <SelectValue placeholder="Select the country your business is registered in" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none max-h-72">
+                {STRIPE_COUNTRIES.map((c) => (
+                  <SelectItem key={c.code} value={c.code} className="text-white hover:bg-white/10 rounded-none">
+                    {c.name} ({c.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-[#6B7280] mt-1.5">
+              Where your business is legally registered and where you receive payouts. Different from where you operate — a UK brand can be registered in Portugal, Ireland, etc. This can't be changed after your Stripe account is created.
+            </p>
           </div>
 
           {/* Category */}

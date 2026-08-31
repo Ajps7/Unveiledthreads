@@ -178,6 +178,46 @@ class BrandApplicationCreate(BaseModel):
     website: Optional[str] = None
     location: str
     category: str
+    # -- Decoupled marketplace vs. Stripe identity (added 2026-08) --
+    # `market`: where the brand is CLASSIFIED for buyer-facing curation. For
+    # this platform that's always "UK" — a brand can operate in the UK
+    # regardless of where they're legally registered. Default UK so nothing
+    # breaks for existing single-country brands.
+    market: str = "UK"
+    # `stripe_country`: ISO-3166-1 alpha-2 of the country where the business
+    # is LEGALLY REGISTERED and BANKED. This is the ONLY country sent to
+    # Stripe. Immutable after Stripe account creation — see
+    # STRIPE_SUPPORTED_COUNTRIES below for the allowlist.
+    stripe_country: str = "GB"
+
+    @field_validator("stripe_country")
+    @classmethod
+    def _valid_stripe_country(cls, v: str) -> str:
+        v = (v or "GB").strip().upper()
+        if v not in STRIPE_SUPPORTED_COUNTRIES:
+            raise ValueError(
+                f"Stripe onboarding isn't supported in '{v}' on this platform. "
+                f"Supported countries: {', '.join(sorted(STRIPE_SUPPORTED_COUNTRIES))}."
+            )
+        return v
+
+
+# ISO-3166-1 alpha-2 codes for countries where Stripe Connect Express is
+# generally available for our platform. Deliberately conservative — we can
+# widen as brands ask. Anywhere unlisted returns a clean 400 instead of
+# creating a broken Stripe account (country is immutable post-create).
+STRIPE_SUPPORTED_COUNTRIES = {
+    # UK
+    "GB",
+    # EEA
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR",
+    "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK",
+    "SI", "ES", "SE",
+    # Non-EEA European countries Stripe supports
+    "CH", "NO", "IS", "LI",
+    # Other common
+    "US", "CA", "AU", "NZ", "JP", "SG", "HK",
+}
 
 class BrandApplicationResponse(BaseModel):
     id: str
@@ -1037,6 +1077,10 @@ async def _finalise_approval(application_id, application, origin_url):
         "website": application.get("website"),
         "location": application["location"],
         "category": application["category"],
+        # Carry the market/stripe_country split from the application → brand.
+        # Legacy applications default to UK/GB so downstream reads Just Work.
+        "market": application.get("market") or "UK",
+        "stripe_country": (application.get("stripe_country") or "GB").upper(),
         "logo_url": None,
         "banner_url": None,
         "is_boosted": False,
@@ -1058,10 +1102,17 @@ async def _finalise_approval(application_id, application, origin_url):
         api_key = os.environ.get("STRIPE_API_KEY")
         stripe_sdk.api_key = api_key
         try:
+            # `stripe_country` was captured at application time. Fall back to
+            # "GB" if this application predates the field (backfill safety).
+            stripe_country = (application.get("stripe_country") or "GB").upper()
+            if stripe_country not in STRIPE_SUPPORTED_COUNTRIES:
+                raise ValueError(
+                    f"Stripe onboarding not supported for country '{stripe_country}'"
+                )
             account = await asyncio.to_thread(
                 stripe_sdk.Account.create,
                 type="express",
-                country="GB",
+                country=stripe_country,
                 email=applicant["email"],
                 capabilities={
                     "card_payments": {"requested": True},

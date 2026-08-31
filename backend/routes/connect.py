@@ -23,10 +23,24 @@ async def connect_onboard(payload: ConnectOnboardRequest, request: Request):
     account_id = brand.get("stripe_account_id")
     try:
         if not account_id:
+            # Use the brand's registered/banking country — decoupled from
+            # the marketplace "market" (which is always UK for curation).
+            # Legacy brands without stripe_country get GB. Country is
+            # IMMUTABLE on Stripe once the account is created, so this must
+            # be right first time.
+            stripe_country = (brand.get("stripe_country") or "GB").upper()
+            if stripe_country not in STRIPE_SUPPORTED_COUNTRIES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Stripe onboarding isn't supported in '{stripe_country}' on this platform. "
+                        f"Update your registered country or contact support."
+                    ),
+                )
             account = await asyncio.to_thread(
                 stripe_sdk.Account.create,
                 type="express",
-                country="GB",
+                country=stripe_country,
                 email=user["email"],
                 capabilities={
                     "card_payments": {"requested": True},

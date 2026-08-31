@@ -30,6 +30,9 @@ async def apply_for_brand(application: BrandApplicationCreate, request: Request)
         "website": application.website,
         "location": application.location,
         "category": application.category,
+        # Marketplace vs. Stripe are decoupled — see BrandApplicationCreate.
+        "market": application.market or "UK",
+        "stripe_country": application.stripe_country or "GB",
         "status": "waitlisted" if cap_reached else "pending",
         "risk_score": risk_score,
         "risk_reasons": risk_reasons,
