@@ -34,6 +34,7 @@ import BuyerProtection from "./pages/BuyerProtection";
 import Account from "./pages/Account";
 import DeadStock from "./pages/DeadStock";
 import AdminDashboard from "./pages/AdminDashboard";
+import GrowthCommandCenter from "./pages/GrowthCommandCenter";
 import CookieBanner from "./components/CookieBanner";
 
 function App() {
@@ -73,6 +74,7 @@ function App() {
             <Route path="/account" element={<Account />} />
             <Route path="/dead-stock" element={<DeadStock />} />
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/growth" element={<GrowthCommandCenter />} />
           </Routes>
           <CookieBanner />
         </BrowserRouter>

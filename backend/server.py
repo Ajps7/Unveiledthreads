@@ -25,6 +25,7 @@ import routes.referrals  # noqa: E402,F401
 import routes.messaging  # noqa: E402,F401
 import routes.community  # noqa: E402,F401
 import routes.botw  # noqa: E402,F401
+import routes.growth  # noqa: E402,F401
 
 # Test-only rate-limiter reset — gated by ENVIRONMENT so it can never
 # exist on production. Used by the pytest suite to isolate rate-limit
