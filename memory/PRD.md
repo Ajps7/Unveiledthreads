@@ -26,6 +26,7 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - Reviews & Ratings (product + brand)
 - Wishlist
 - Brand analytics dashboard
+- **Network Effects Command Center** (`/admin/growth`, admin-only) — marketplace growth diagnosis, playbook and flywheel simulator
 - Referrals — **currently hidden as "Coming Soon" placeholder** (user request)
 - In-app messaging with strict automated content surveillance (emails / phones / URLs / PayPal / Venmo / WhatsApp blocked)
 - Community feed + product comments
@@ -34,6 +35,12 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 - 8+ clothing categories
 
 ## Changelog (recent)
+- 2026-09: **Network Effects Command Center — admin growth intelligence at `/admin/growth`.**
+  A marketplace-growth tool that reads live data and returns a diagnosis, a sequenced playbook and a flywheel projection.
+  **Backend:** new pure-Python package `backend/growth/` — `benchmarks.py` (metric bands + 5 stage gates, each with the reasoning behind the number), `metrics.py` (liquidity, cross-side balance, **multi-brand buyer rate** — the actual network-effect test, GMV Gini/HHI, observed K-factor, cohort retention, atomic-network cell), `diagnostics.py` (six loops scored 0-100, ~11 named failure modes such as *Ghost town*, *Silo marketplace*, *Leaky bucket*, plus stage sequencing and an explicit confidence level), `playbook.py` (27 plays with triggers, mechanism, steps, expected impact, ICE score and kill criteria, sequenced into now / next / **not yet**), `simulator.py` (12-month model with three feedback loops closed: catalogue depth → conversion, GMV-per-brand → supply churn, K → compounding referrals; take rate derived from the real Buyer Protection fee, so the £6 cap is modelled), `narrative.py` (deterministic executive memo). `collector.py` is the ONLY module touching Mongo — everything else is stdlib-only and side-effect free, so the judgment is unit-tested against synthetic marketplaces with no DB and no server (115 tests in `backend/growth/tests/`, run with plain `pytest`).
+  **Routes:** `routes/growth.py` — admin-only `GET /api/growth/{snapshot,diagnosis,playbook,cohorts,brief}` and `POST /api/growth/simulate`. Window clamped to 7-365 days; snapshots cached (`GROWTH_CACHE_TTL_SECONDS`, default 300) with a bounded cache so walking `?days=` cannot pin memory; collector reads are hard-capped.
+  **Frontend:** `pages/GrowthCommandCenter.js` + `components/growth/*` — memo, stage track, loop scorecard, playbook board, cold-start/concentration panel, cohort matrix and an interactive simulator (recharts) whose sliders seed from measured actuals. Linked from the admin panel.
+  **Convention that runs throughout:** `null` means "not measurable" and renders as an em dash — never as 0. Unmeasurable gates never count as passed, and the tool states plainly that no acquisition-channel attribution exists anywhere in the schema, so organic-vs-paid share and blended CAC cannot be computed.
 - 2026-08: **Four-feature drop — image moderation + change-email + favicon + structured description**.
   **(1) Image moderation on product create/update.** New `moderate_product_images()` in `core.py` runs per-image: always-on server-side gates (magic bytes / Pillow decode / 8MB / 8000px cap) plus a swappable external provider via `IMAGE_MODERATION_PROVIDER` env (default `none`; `claude` uses Claude Haiku vision through the existing Emergent LLM key — no extra key). Verdicts: `passed` / `flagged` / `unverified`. `POST /products` and `PUT /products/{id}` reject any `flagged` image with a 422 that names only the image position ("Image 2 was flagged and can't be used") — internal reason stays in logs. `unverified` (no provider configured OR external image URL OR unclear verdict) is stored but the product's `moderation_status` becomes `needs_review` for admin sweeping. Public `/products` list hides `moderation_status="flagged"`. NEW admin endpoints `GET /admin/moderation/products` + `POST /admin/moderation/products/{id}` (approve/take-down). Per-image record on the product doc: `images_moderation: [{index, url, status, reason}]`. Update path re-scans only newly-added images so re-saving unchanged edits is free.
   **(2) Change email — two-step, mirrors the reset-password token pattern.** NEW `POST /auth/change-email/request` (rate-limit 5/hour, auth required, re-authenticates via `current_password`, rejects same-email 400 and in-use email 409, single in-flight token per user, hashed SHA-256 in `db.email_change_tokens`, 1-hour expiry, single-use). Sends the verification link to the NEW inbox and a security-notice email to the OLD inbox so account-takeover is visible. NEW `POST /auth/change-email/confirm` (10/hour) validates + consumes token, flips `users.email`, wipes any outstanding password-reset tokens, and deletes the `access_token` cookie (forces sign-in with new address → re-secures account). Frontend: NEW **Change email** card on `/account` (data-testid=`change-email-section`) with post-submit "check your new inbox" confirmation. NEW `/verify-email-change?token=…` landing page (`VerifyEmailChange.js`) with loading/OK/error states in the brutalist theme.
@@ -100,7 +107,8 @@ Full-featured UK streetwear marketplace for independent/small-medium brands with
 
 ## Roadmap
 ### P1 (next)
-- (none queued — user dropped product colour variants)
+- **Acquisition attribution** — persist first-touch source/medium/campaign on the user document at registration. Flagged by the Command Center as the highest-value instrumentation gap: without it, organic share, blended CAC and channel LTV are all unmeasurable.
+- (nothing else queued — user dropped product colour variants)
 
 ### P2 (backlog)
 - Push notifications (currently short-polling)

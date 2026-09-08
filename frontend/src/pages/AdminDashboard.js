@@ -20,6 +20,7 @@ import {
   Loader2,
   ExternalLink,
   Trash2,
+  Network,
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -266,15 +267,25 @@ export default function AdminDashboard() {
 
       <div className="max-w-7xl mx-auto px-6 md:px-12 py-8">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Shield className="w-8 h-8 text-[#39FF14]" />
-          <h1 
-            className="text-2xl md:text-3xl font-black tracking-tighter uppercase text-white"
-            style={{ fontFamily: 'Clash Display, sans-serif' }}
-            data-testid="admin-dashboard-title"
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <Shield className="w-8 h-8 text-[#39FF14]" />
+            <h1 
+              className="text-2xl md:text-3xl font-black tracking-tighter uppercase text-white"
+              style={{ fontFamily: 'Clash Display, sans-serif' }}
+              data-testid="admin-dashboard-title"
+            >
+              Admin Panel
+            </h1>
+          </div>
+
+          <Link
+            to="/admin/growth"
+            className="inline-flex items-center gap-2 border border-[#39FF14]/40 bg-[#39FF14]/5 px-4 py-2 text-xs uppercase tracking-wider text-[#39FF14] transition-colors hover:bg-[#39FF14]/15"
+            data-testid="admin-growth-link"
           >
-            Admin Panel
-          </h1>
+            <Network className="w-4 h-4" /> Network Effects Command Center
+          </Link>
         </div>
 
         {/* MVP Seller Cap */}
