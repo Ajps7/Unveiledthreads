@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Loader2, ArrowLeft, Lock, Shield, LogIn } from 'lucide-react';
+import { calcBuyerFee, BUYER_PROTECTION_TOOLTIP } from '../lib/fees';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -135,25 +136,53 @@ export default function GuestCheckout() {
           </p>
         </div>
 
-        {/* Product summary */}
-        <div className="border border-white/10 bg-[#0A0A0A] p-4 flex items-center gap-4 mb-8">
-          {product?.images?.[0] && (
-            <img
-              src={product.images[0].startsWith('/api/') ? `${API}${product.images[0]}` : product.images[0]}
-              alt={product.name}
-              className="w-20 h-20 object-cover border border-white/10"
-            />
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-white font-medium truncate">{product?.name}</p>
-            <p className="text-xs text-[#9CA3AF]">{product?.brand_name} · Size {size}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-white font-bold">£{Number(product?.price || 0).toFixed(2)}</p>
-            {product?.shipping_cost > 0 && (
-              <p className="text-[10px] text-[#9CA3AF]">+ £{Number(product.shipping_cost).toFixed(2)} ship</p>
+        {/* Product summary + full price breakdown — matches what Stripe will show,
+            so the buyer isn't surprised by the Buyer Protection line at payment. */}
+        <div className="border border-white/10 bg-[#0A0A0A] mb-8" data-testid="guest-checkout-summary">
+          <div className="p-4 flex items-center gap-4">
+            {product?.images?.[0] && (
+              <img
+                src={product.images[0].startsWith('/api/') ? `${API}${product.images[0]}` : product.images[0]}
+                alt={product.name}
+                className="w-20 h-20 object-cover border border-white/10"
+              />
             )}
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-medium truncate">{product?.name}</p>
+              <p className="text-xs text-[#9CA3AF]">{product?.brand_name} · Size {size}</p>
+            </div>
           </div>
+          {product && (() => {
+            const price = Number(product.price || 0);
+            const shipping = Number(product.shipping_cost || 0);
+            const fee = calcBuyerFee(price);
+            const total = Math.round((price + fee + shipping) * 100) / 100;
+            return (
+              <div className="border-t border-white/10 px-4 py-4 text-sm space-y-2">
+                <div className="flex justify-between text-[#9CA3AF]">
+                  <span>Item</span>
+                  <span className="text-white" data-testid="summary-item-price">£{price.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-[#9CA3AF]">
+                  <span title={BUYER_PROTECTION_TOOLTIP} className="underline decoration-dotted decoration-[#9CA3AF]/40 underline-offset-2 cursor-help">
+                    Buyer Protection
+                  </span>
+                  <span className="text-white" data-testid="summary-buyer-fee">£{fee.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-[#9CA3AF]">
+                  <span>Shipping</span>
+                  <span className="text-white" data-testid="summary-shipping">{shipping > 0 ? `£${shipping.toFixed(2)}` : 'Free'}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-white/10 font-bold">
+                  <span className="text-white">Total</span>
+                  <span className="text-[#39FF14]" data-testid="summary-total">£{total.toFixed(2)}</span>
+                </div>
+                <p className="text-[10px] text-[#6B7280] pt-1 leading-relaxed">
+                  Buyer Protection (5% + £0.49, max £6) covers your money-back guarantee, easy returns, and hand-vetted independent brands.
+                </p>
+              </div>
+            );
+          })()}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6" data-testid="guest-checkout-form">

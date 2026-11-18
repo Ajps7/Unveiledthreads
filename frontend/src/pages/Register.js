@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -24,6 +24,15 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
+
+  // Same safe-next handling as Login: honour ?next= for guest-checkout
+  // return flow, block open-redirects by requiring a relative path.
+  const safeNext = (() => {
+    const n = sp.get('next');
+    if (n && n.startsWith('/') && !n.startsWith('//')) return n;
+    return '/';
+  })();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -43,7 +52,7 @@ export default function Register() {
 
     try {
       await register(email, password, name);
-      navigate('/');
+      navigate(safeNext);
     } catch (err) {
       setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
     } finally {
@@ -89,7 +98,7 @@ export default function Register() {
               <div>{error}</div>
               {typeof error === 'string' && error.toLowerCase().includes('already exists') && (
                 <div className="mt-2 flex gap-3 text-xs">
-                  <Link to="/login" className="text-[#39FF14] hover:underline uppercase tracking-wider" data-testid="error-login-link">
+                  <Link to={`/login${safeNext !== '/' ? `?next=${encodeURIComponent(safeNext)}` : ''}`} className="text-[#39FF14] hover:underline uppercase tracking-wider" data-testid="error-login-link">
                     Sign in instead
                   </Link>
                   <Link to="/forgot-password" className="text-[#39FF14] hover:underline uppercase tracking-wider" data-testid="error-forgot-link">
@@ -194,7 +203,7 @@ export default function Register() {
 
           <p className="mt-8 text-[#9CA3AF] text-center">
             Already have an account?{' '}
-            <Link to="/login" className="text-[#39FF14] hover:underline" data-testid="login-link">
+            <Link to={`/login${safeNext !== '/' ? `?next=${encodeURIComponent(safeNext)}` : ''}`} className="text-[#39FF14] hover:underline" data-testid="login-link">
               Sign in
             </Link>
           </p>

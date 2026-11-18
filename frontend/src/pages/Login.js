@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -22,6 +22,16 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
+
+  // Honour ?next= so guest-checkout "Or sign in" links return the buyer
+  // to their product. Only allow same-origin relative paths to block
+  // open-redirect abuse (?next=https://evil.example).
+  const safeNext = (() => {
+    const n = sp.get('next');
+    if (n && n.startsWith('/') && !n.startsWith('//')) return n;
+    return '/';
+  })();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -30,7 +40,7 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate('/');
+      navigate(safeNext);
     } catch (err) {
       setError(formatApiErrorDetail(err.response?.data?.detail) || err.message);
     } finally {
@@ -122,7 +132,7 @@ export default function Login() {
 
           <p className="mt-8 text-[#9CA3AF] text-center">
             Don't have an account?{' '}
-            <Link to="/register" className="text-[#39FF14] hover:underline" data-testid="register-link">
+            <Link to={`/register${safeNext !== '/' ? `?next=${encodeURIComponent(safeNext)}` : ''}`} className="text-[#39FF14] hover:underline" data-testid="register-link">
               Create one
             </Link>
           </p>
