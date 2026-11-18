@@ -15,6 +15,9 @@ export default function OrderSuccess() {
   const [status, setStatus] = useState('checking');
   const [order, setOrder] = useState(null);
 
+  const isGuest = searchParams.get('guest') === '1';
+  const guestToken = searchParams.get('token') || '';
+
   const pollPaymentStatus = useCallback(async (sessionId, attemptNum = 0) => {
     if (attemptNum >= 5) {
       setStatus('timeout');
@@ -22,7 +25,12 @@ export default function OrderSuccess() {
     }
 
     try {
-      const response = await axios.get(`${API}/api/orders/status/${sessionId}`, { withCredentials: true });
+      // Guest flow tacks on `?token=<lookup_token>` for authorisation —
+      // the backend accepts either a session cookie or a matching token.
+      const url = isGuest && guestToken
+        ? `${API}/api/orders/status/${sessionId}?token=${encodeURIComponent(guestToken)}`
+        : `${API}/api/orders/status/${sessionId}`;
+      const response = await axios.get(url, { withCredentials: !isGuest });
 
       if (response.data.payment_status === 'paid') {
         if (response.data.order) setOrder(response.data.order);
@@ -38,7 +46,7 @@ export default function OrderSuccess() {
       console.error('Error checking payment status:', error);
       setStatus('error');
     }
-  }, []);
+  }, [isGuest, guestToken]);
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
@@ -89,19 +97,52 @@ export default function OrderSuccess() {
                 </div>
               </div>
             )}
-            <div className="flex gap-4 justify-center">
-              <Link to="/products">
-                <Button className="btn-primary" data-testid="continue-shopping-button">
-                  <Package className="w-4 h-4 mr-2" />
-                  Continue Shopping
-                </Button>
-              </Link>
-              <Link to="/orders">
-                <Button className="btn-secondary" data-testid="view-orders-button">
-                  My Orders
-                </Button>
-              </Link>
+            <div className="flex gap-4 justify-center flex-wrap">
+              {isGuest && guestToken && order ? (
+                <Link to={`/track?order_id=${order.id || ''}&token=${encodeURIComponent(guestToken)}`}>
+                  <Button className="btn-primary" data-testid="guest-track-order-button">
+                    <Package className="w-4 h-4 mr-2" /> Track your order
+                  </Button>
+                </Link>
+              ) : (
+                <>
+                  <Link to="/products">
+                    <Button className="btn-primary" data-testid="continue-shopping-button">
+                      <Package className="w-4 h-4 mr-2" />
+                      Continue Shopping
+                    </Button>
+                  </Link>
+                  <Link to="/orders">
+                    <Button className="btn-secondary" data-testid="view-orders-button">
+                      My Orders
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
+
+            {/* Guest-only: optional account upgrade. Skippable — we don't
+                require it, and the order is already saved + emailed. */}
+            {isGuest && !user && (
+              <div className="max-w-sm mx-auto mt-10 border border-[#39FF14]/30 bg-[#39FF14]/5 p-5 text-left" data-testid="guest-upgrade-card">
+                <p className="text-sm text-white font-medium mb-1">Save tracking for next time?</p>
+                <p className="text-xs text-[#9CA3AF] mb-3">
+                  Set a password to see all your orders on one page. Totally optional — your order's already saved and we've emailed you the tracking link.
+                </p>
+                <div className="flex gap-2">
+                  <Link to="/register" className="flex-1">
+                    <Button className="btn-primary w-full text-xs" data-testid="guest-create-account-button">
+                      Create account
+                    </Button>
+                  </Link>
+                  <Link to="/products" className="flex-1">
+                    <Button className="btn-secondary w-full text-xs" data-testid="guest-skip-account-button">
+                      Skip
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            )}
           </>
         )}
 

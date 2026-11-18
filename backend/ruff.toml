@@ -1,0 +1,5 @@
+[lint]
+# Routes intentionally use `from core import *` to share shared helpers
+# (db, api_router, limiter, auth guards, models, etc.). Suppress star-import
+# warnings for the backend package since this is a deliberate project pattern.
+ignore = ["F403", "F405"]

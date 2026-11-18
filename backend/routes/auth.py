@@ -31,6 +31,19 @@ async def register(user_data: UserCreate, request: Request, response: Response):
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
+
+    # Account linking: adopt any past GUEST orders that used this email so
+    # the new user's /orders page shows their purchase history from day one.
+    try:
+        link_res = await db.orders.update_many(
+            {"buyer_email": email, "buyer_id": None},
+            {"$set": {"buyer_id": user_id, "guest_order": False}},
+        )
+        if link_res.modified_count:
+            logger.info(f"[AUTH] Linked {link_res.modified_count} guest order(s) to new user {user_id}")
+    except Exception as e:
+        # Never block registration on linking failure.
+        logger.warning(f"[AUTH] Guest-order linking on register failed: {e}")
     
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
@@ -56,6 +69,19 @@ async def login(user_data: UserLogin, request: Request, response: Response):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     user_id = str(user["_id"])
+
+    # Account linking: adopt any past GUEST orders that used this email so
+    # they show up on /orders immediately after login.
+    try:
+        link_res = await db.orders.update_many(
+            {"buyer_email": email, "buyer_id": None},
+            {"$set": {"buyer_id": user_id, "guest_order": False}},
+        )
+        if link_res.modified_count:
+            logger.info(f"[AUTH] Linked {link_res.modified_count} guest order(s) to existing user {user_id}")
+    except Exception as e:
+        logger.warning(f"[AUTH] Guest-order linking on login failed: {e}")
+
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     

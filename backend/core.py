@@ -7,6 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import asyncio
+import secrets
 import requests as http_requests
 import resend
 from pathlib import Path
@@ -170,6 +171,37 @@ class UserResponse(BaseModel):
     name: str
     role: str
     created_at: datetime
+
+class GuestShippingAddress(BaseModel):
+    """Shipping address collected from unauthenticated buyers. Country is
+    free text so the Stripe Checkout address step can still localise if
+    the buyer later changes it."""
+    name: str = Field(min_length=1, max_length=120)
+    line1: str = Field(min_length=1, max_length=200)
+    line2: Optional[str] = Field(default=None, max_length=200)
+    city: str = Field(min_length=1, max_length=120)
+    postcode: str = Field(min_length=1, max_length=20)
+    country: str = Field(default="GB", min_length=2, max_length=60)
+
+
+class GuestCheckoutRequest(BaseModel):
+    """Payload for the guest-buyer checkout. NEVER contains a password or
+    any auth token — the lookup_token in the resulting order is the only
+    way back to this purchase without an account."""
+    product_id: str
+    size: str
+    origin_url: str
+    buyer_email: EmailStr
+    shipping_address: GuestShippingAddress
+    # GDPR: unticked by default on the UI. Only `true` lets us keep the
+    # email for marketing beyond transactional use.
+    marketing_opt_in: bool = False
+
+
+class GuestOrderLookupRequest(BaseModel):
+    order_id: str
+    lookup_token: str = Field(min_length=20, max_length=64)
+
 
 class BrandApplicationCreate(BaseModel):
     brand_name: str

@@ -92,8 +92,13 @@ export default function ProductDetail() {
   }, [fetchProduct]);
 
   const handlePurchase = async () => {
-    if (!user) { window.location.href = '/login'; return; }
     if (!selectedSize) return;
+    // Guest checkout: unauthenticated buyers go through the lightweight
+    // email+shipping form instead of being bounced to /login.
+    if (!user) {
+      window.location.href = `/checkout/guest/${id}?size=${encodeURIComponent(selectedSize)}`;
+      return;
+    }
     setPurchasing(true);
     try {
       const response = await axios.post(

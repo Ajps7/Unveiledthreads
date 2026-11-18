@@ -185,8 +185,249 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
     
     return {"url": session.url, "session_id": session.id}
 
+
+@api_router.post("/orders/checkout/guest")
+@limiter.limit("5/minute")
+async def create_order_checkout_guest(payload: GuestCheckoutRequest, request: Request):
+    """Buy without an account. Collects email + shipping, creates a Stripe
+    Checkout Session on the seller's connected account exactly like the
+    authed flow, and records the order with user_id=None + a lookup_token
+    so the buyer can track it from a confirmation email link.
+
+    NO authentication. NO password. The lookup_token is the ONLY way back
+    to this order without later signing up with the same email (which
+    auto-links via /auth/register + /auth/login)."""
+    product = await db.products.find_one({"_id": ObjectId(payload.product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product.get("status") == "draft":
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    is_preorder = bool(product.get("is_preorder"))
+    if not is_preorder:
+        if product["stock"] <= 0:
+            raise HTTPException(status_code=400, detail="Product is out of stock")
+    else:
+        preorder_limit = product.get("preorder_limit")
+        if preorder_limit is not None:
+            current_preorders = await db.orders.count_documents({
+                "product_id": str(product["_id"]),
+                "status": {"$in": ["preorder_paid", "shipped", "delivered", "initiated"]},
+            })
+            if current_preorders >= preorder_limit:
+                raise HTTPException(status_code=409, detail="Pre-order sold out.")
+
+    if payload.size not in product["sizes"]:
+        raise HTTPException(status_code=400, detail="Selected size is not available")
+
+    brand_doc = await db.brands.find_one({"_id": ObjectId(product["brand_id"])})
+    if not brand_doc:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    if not brand_doc.get("stripe_account_id") or not brand_doc.get("stripe_charges_enabled"):
+        raise HTTPException(
+            status_code=400,
+            detail="This brand hasn't completed Stripe payment onboarding yet. Please check back soon.",
+        )
+
+    # Pricing comes from the DB — never from the client, even if they sent one.
+    product_price = product["price"]
+    shipping_cost = product.get("shipping_cost", 0)
+    platform_fee = calculate_buyer_fee(product_price)
+    # Referral credit is per-user, so guest orders never apply credit.
+    credit_applied = 0.0
+    fee_charged = round(platform_fee, 2)
+    total_price = round(product_price + fee_charged + shipping_cost, 2)
+
+    api_key = os.environ.get("STRIPE_API_KEY")
+    stripe_sdk.api_key = api_key
+
+    # Generate the lookup_token NOW so it can be baked into success_url —
+    # the confirmation page fetches the order by (session_id, token).
+    lookup_token = secrets.token_urlsafe(32)
+
+    success_url = (
+        f"{payload.origin_url}/order/success?session_id={{CHECKOUT_SESSION_ID}}"
+        f"&guest=1&token={lookup_token}"
+    )
+    cancel_url = f"{payload.origin_url}/products/{payload.product_id}"
+
+    metadata = {
+        "type": "product_purchase",
+        "guest": "1",
+        "product_id": str(product["_id"]),
+        "brand_id": product["brand_id"],
+        "size": payload.size,
+        "product_price": str(product_price),
+        "platform_fee": str(fee_charged),
+        "shipping_cost": str(shipping_cost),
+    }
+
+    line_items = [
+        {
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {
+                    "name": f"{product['name']} (Size: {payload.size})",
+                    "description": f"Sold by {product['brand_name']} via Unveiled Threads",
+                },
+                "unit_amount": int(round(product_price * 100)),
+            },
+            "quantity": 1,
+        },
+    ]
+    if fee_charged > 0:
+        line_items.append({
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {
+                    "name": "Buyer Protection",
+                    "description": "5% + £0.49 (max £6): money-back guarantee, easy returns, hand-vetted independent brands",
+                },
+                "unit_amount": int(round(fee_charged * 100)),
+            },
+            "quantity": 1,
+        })
+    if shipping_cost > 0:
+        line_items.append({
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {"name": "Shipping"},
+                "unit_amount": int(round(shipping_cost * 100)),
+            },
+            "quantity": 1,
+        })
+
+    payment_intent_data = {"metadata": metadata}
+    fee_pence = int(round(fee_charged * 100))
+    if fee_pence > 0:
+        payment_intent_data["application_fee_amount"] = fee_pence
+
+    try:
+        session = await asyncio.to_thread(
+            stripe_sdk.checkout.Session.create,
+            mode="payment",
+            line_items=line_items,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata=metadata,
+            payment_intent_data=payment_intent_data,
+            customer_email=payload.buyer_email,  # pre-fills Stripe's form
+            stripe_account=brand_doc["stripe_account_id"],
+        )
+    except Exception as e:
+        logger.error(f"Guest Stripe direct charge failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+
+    now = datetime.now(timezone.utc)
+    order_doc = {
+        "session_id": session.id,
+        "buyer_id": None,                       # ← key guest marker
+        "buyer_email": payload.buyer_email,
+        "buyer_name": payload.shipping_address.name,
+        "product_id": str(product["_id"]),
+        "product_name": product["name"],
+        "brand_id": product["brand_id"],
+        "brand_name": product["brand_name"],
+        "size": payload.size,
+        "price": product_price,
+        "shipping_cost": shipping_cost,
+        "platform_fee": fee_charged,
+        "credit_applied": credit_applied,
+        "total_charged": total_price,
+        "brand_payout": product_price + shipping_cost,
+        "stripe_account_id": brand_doc["stripe_account_id"],
+        "status": "initiated",
+        "shipping_status": "confirmed",
+        "shipping_address": payload.shipping_address.model_dump(),
+        "tracking_number": None,
+        "courier": None,
+        "shipping_updates": [],
+        "reviewed": False,
+        "is_preorder": is_preorder,
+        "preorder_ship_date": product.get("preorder_ship_date") if is_preorder else None,
+        # Guest-specific fields — set here, never mutated after.
+        "guest_order": True,
+        "lookup_token": lookup_token,
+        "marketing_opt_in": bool(payload.marketing_opt_in),
+        "consent_timestamp": now if payload.marketing_opt_in else None,
+        "created_at": now,
+    }
+    await db.orders.insert_one(order_doc)
+
+    # Payment ledger entry — same schema as authed flow, user_id just null.
+    await db.payment_transactions.insert_one({
+        "session_id": session.id,
+        "user_id": None,
+        "guest": True,
+        "type": "product_purchase",
+        "amount": total_price,
+        "currency": "gbp",
+        "payment_status": "initiated",
+        "created_at": now,
+    })
+
+    # Marketing-opt-in subscriber record — kept in its OWN collection so
+    # admin CSV exports of orders stay clean (GDPR). Only touched when
+    # the buyer explicitly ticked the box.
+    if payload.marketing_opt_in:
+        await db.marketing_subscribers.update_one(
+            {"email": payload.buyer_email.lower()},
+            {"$setOnInsert": {
+                "email": payload.buyer_email.lower(),
+                "source": "guest_checkout",
+                "consent_timestamp": now,
+                "synced_to_mailerlite": False,
+            }},
+            upsert=True,
+        )
+
+    return {"url": session.url, "session_id": session.id, "lookup_token": lookup_token}
+
+
+@api_router.get("/orders/lookup")
+@limiter.limit("30/minute")
+async def guest_order_lookup(request: Request, order_id: str, token: str):
+    """Public order-tracking endpoint for guest buyers. Returns the
+    single order ONLY if `order_id` + `lookup_token` match. Never leaks
+    other buyers' data; never discloses whether `order_id` exists when
+    the token is wrong (returns a flat 404 either way)."""
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order = await db.orders.find_one({"_id": oid})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    # Constant-time compare so timing can't be used to probe tokens.
+    stored_token = order.get("lookup_token") or ""
+    if not secrets.compare_digest(stored_token, token or ""):
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Return a trimmed view — never leak internal/Stripe/admin fields.
+    return {
+        "id": str(order["_id"]),
+        "product_name": order.get("product_name"),
+        "brand_name": order.get("brand_name"),
+        "size": order.get("size"),
+        "price": order.get("price"),
+        "shipping_cost": order.get("shipping_cost"),
+        "total_charged": order.get("total_charged"),
+        "status": order.get("status"),
+        "shipping_status": order.get("shipping_status"),
+        "tracking_number": order.get("tracking_number"),
+        "courier": order.get("courier"),
+        "shipping_updates": order.get("shipping_updates", []),
+        "is_preorder": bool(order.get("is_preorder")),
+        "preorder_ship_date": order.get("preorder_ship_date"),
+        "created_at": order.get("created_at"),
+        "is_guest": order.get("guest_order", False),
+    }
+
+
 def _order_receipt(order: dict) -> dict:
     return {
+        "id": str(order.get("_id")) if order.get("_id") else None,
         "product_name": order.get("product_name"),
         "brand_name": order.get("brand_name"),
         "size": order.get("size"),
@@ -258,7 +499,15 @@ async def send_order_receipt_email(order: dict):
         <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
             Buyer Protection (5% + £0.49, max £6) covers your money-back guarantee, easy returns and hand-vetted
             independent brands — it's how we keep the platform commission-free for independent brands.
-            {f'<a href="{frontend_url}/orders" style="color:#39FF14;">View your order</a> &middot; <a href="{frontend_url}/buyer-protection" style="color:#39FF14;">Buyer Protection policy</a>' if frontend_url else ''}
+            {
+                (
+                    f'<br><br><a href="{frontend_url}/track?order_id={order.get("_id")}&token={order.get("lookup_token")}" '
+                    f'style="color:#39FF14;font-weight:bold;">Track your order →</a> '
+                    f'<span style="color:#6B7280;">(no account needed — bookmark this link)</span>'
+                )
+                if order.get("guest_order") and order.get("lookup_token") and frontend_url
+                else (f'<a href="{frontend_url}/orders" style="color:#39FF14;">View your order</a> &middot; <a href="{frontend_url}/buyer-protection" style="color:#39FF14;">Buyer Protection policy</a>' if frontend_url else '')
+            }
         </p>
         <hr style="border:1px solid #27272A;margin:24px 0;">
         <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
@@ -417,15 +666,33 @@ async def run_order_reconciliation(request: Request):
     return {"settled": settled, "count": len(settled)}
 
 @api_router.get("/orders/status/{session_id}")
-async def get_order_status(session_id: str, request: Request):
-    user = await get_current_user(request)
-    
+async def get_order_status(session_id: str, request: Request, token: Optional[str] = None):
+    """Poll Stripe for session status + finalise the order.
+
+    Authorisation: either (a) a logged-in buyer whose `buyer_id` matches
+    the order, OR (b) an unauthenticated caller passing the correct
+    `lookup_token` query param (guest-checkout flow). Everyone else gets
+    a 404 — never leak whether an order exists under a session id.
+    """
     order = await db.orders.find_one({"session_id": session_id})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    if order["buyer_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Authorisation: logged-in owner OR matching guest lookup token.
+    allowed = False
+    try:
+        user = await get_current_user(request)
+        if order.get("buyer_id") == user["id"]:
+            allowed = True
+    except HTTPException:
+        pass
+    if not allowed and token:
+        stored = order.get("lookup_token") or ""
+        if stored and secrets.compare_digest(stored, token):
+            allowed = True
+    if not allowed:
+        # Flat 404 — never disclose whether the session id is valid.
+        raise HTTPException(status_code=404, detail="Order not found")
     
     if order.get("status") in ("paid", "preorder_paid"):
         return {"status": "complete", "payment_status": "paid", "already_processed": True, "order": _order_receipt(order)}
