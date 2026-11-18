@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../components/Header';
-import { Loader2, Package, Truck, CheckCircle2, Clock, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { toast } from 'sonner';
+import { Loader2, Package, Truck, CheckCircle2, Clock, AlertTriangle, ArrowLeft, Mail } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -28,10 +31,15 @@ export default function GuestOrderLookup() {
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoverySending, setRecoverySending] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
 
   useEffect(() => {
     if (!orderId || !token) {
-      setError('This tracking link is missing information. Please use the link in your confirmation email.');
+      // Not an error — the user hit /track with no params (likely from the
+      // "lost your link?" entry point). Skip the fetch and just show the
+      // recovery card.
       setLoading(false);
       return;
     }
@@ -47,6 +55,33 @@ export default function GuestOrderLookup() {
       }
     })();
   }, [orderId, token]);
+
+  const requestRecovery = async (e) => {
+    e.preventDefault();
+    const email = recoveryEmail.trim();
+    if (!email) return;
+    setRecoverySending(true);
+    try {
+      await axios.post(`${API}/api/orders/lookup/request-link`, { email });
+      // Backend always returns 200 (email-enumeration safe) — mirror that
+      // in copy so a user can't probe whether an email has orders here.
+      setRecoverySent(true);
+      toast.success("If we found any orders for that email, we've sent the tracking links.");
+    } catch (err) {
+      // Validation errors (bad email format) or rate-limit — show detail.
+      const d = err.response?.data?.detail;
+      const msg = Array.isArray(d) ? d[0]?.msg : (typeof d === 'string' ? d : '');
+      if (err.response?.status === 429) {
+        toast.error("You've asked for this a few times already — please wait an hour before trying again.");
+      } else {
+        toast.error(msg || 'Please enter a valid email address.');
+      }
+    } finally {
+      setRecoverySending(false);
+    }
+  };
+
+  const showRecoveryCard = !loading && (!order || error);
 
   const meta = order ? (STATUS_META[order.shipping_status] || STATUS_META[order.status] || { label: order.status, Icon: Package, color: 'text-white' }) : null;
 
@@ -73,7 +108,7 @@ export default function GuestOrderLookup() {
         )}
 
         {!loading && error && (
-          <div className="border border-red-500/40 bg-red-500/5 p-6" data-testid="track-error">
+          <div className="border border-red-500/40 bg-red-500/5 p-6 mb-6" data-testid="track-error">
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
               <div>
@@ -81,6 +116,56 @@ export default function GuestOrderLookup() {
                 <p className="text-xs text-[#9CA3AF]">{error}</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {showRecoveryCard && (
+          <div className="border border-white/10 bg-[#0A0A0A] p-6" data-testid="track-recovery-card">
+            <div className="flex items-start gap-3 mb-4">
+              <Mail className="w-5 h-5 text-[#39FF14] flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-white font-medium mb-1">
+                  {error ? 'Lost your tracking link?' : 'Email me my tracking link'}
+                </p>
+                <p className="text-xs text-[#9CA3AF]">
+                  Enter the email you used at checkout and we'll resend the tracking links for any orders you placed as a guest.
+                </p>
+              </div>
+            </div>
+
+            {recoverySent ? (
+              <div className="border border-[#39FF14]/30 bg-[#39FF14]/5 p-4 text-sm text-white" data-testid="track-recovery-sent">
+                If we found any orders for that email, we've just sent the tracking links.
+                Check your inbox — and your spam folder, just in case.
+              </div>
+            ) : (
+              <form onSubmit={requestRecovery} className="space-y-3" data-testid="track-recovery-form">
+                <Input
+                  type="email"
+                  required
+                  value={recoveryEmail}
+                  onChange={(e) => setRecoveryEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="input-brutalist"
+                  data-testid="track-recovery-email"
+                />
+                <Button
+                  type="submit"
+                  disabled={recoverySending || !recoveryEmail.trim()}
+                  className="btn-primary w-full"
+                  data-testid="track-recovery-submit"
+                >
+                  {recoverySending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Sending…</>
+                  ) : (
+                    <><Mail className="w-4 h-4 mr-2" /> Email me the links</>
+                  )}
+                </Button>
+                <p className="text-[10px] text-[#6B7280] text-center">
+                  No account needed. Rate-limited to protect your inbox.
+                </p>
+              </form>
+            )}
           </div>
         )}
 

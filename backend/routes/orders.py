@@ -430,6 +430,108 @@ async def guest_order_lookup(request: Request, order_id: str, token: str):
     }
 
 
+class GuestRecoveryRequest(BaseModel):
+    email: EmailStr
+
+
+@api_router.post("/orders/lookup/request-link")
+@limiter.limit("3/hour")
+async def guest_order_recovery(payload: GuestRecoveryRequest, request: Request):
+    """Email the guest buyer their tracking links for any orders tied to
+    this email. Email-enumeration safe: ALWAYS returns a flat 200 with
+    the same body whether or not any orders exist. Aggressive rate-limit
+    (3/hour/IP) because this endpoint sends real email.
+
+    Only non-expired guest orders (`guest_order=True`, `lookup_token` set,
+    status NOT in {'expired'}) are included, newest 10 at most. We never
+    touch orders that were later auto-linked to an account — those users
+    can sign in to see their orders page.
+    """
+    email_norm = payload.email.strip().lower()
+    cursor = db.orders.find({
+        "buyer_email": email_norm,
+        "guest_order": True,
+        "lookup_token": {"$exists": True, "$nin": [None, ""]},
+        "status": {"$nin": ["expired"]},
+    }).sort("created_at", -1).limit(10)
+    orders = await cursor.to_list(10)
+
+    if orders:
+        await _send_guest_recovery_email(email_norm, orders)
+    else:
+        # Log only — never reveal to the client that no orders were found.
+        logger.info(f"[GUEST RECOVERY] No orders for {email_norm}; sending nothing.")
+
+    # Identical response in both branches so a probe can't tell the difference.
+    return {"ok": True, "message": "If we found any orders for that email, we've just sent the tracking links."}
+
+
+async def _send_guest_recovery_email(email: str, orders: list):
+    """Branded email listing every matching guest order with its own Track-your-order link."""
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    if not frontend_url:
+        logger.warning("[GUEST RECOVERY] FRONTEND_URL not set — cannot build tracking links; skipping email.")
+        return
+
+    rows = []
+    for o in orders:
+        oid = str(o["_id"])
+        token = o.get("lookup_token") or ""
+        link = f"{frontend_url}/track?order_id={oid}&token={token}"
+        when = o.get("created_at")
+        when_str = when.strftime("%d %b %Y") if hasattr(when, "strftime") else ""
+        rows.append(f"""
+            <tr>
+                <td style="padding:12px 0;border-bottom:1px solid #27272A;">
+                    <p style="color:#fff;font-weight:bold;margin:0 0 2px;">{esc(o.get('product_name', ''))}</p>
+                    <p style="color:#9CA3AF;font-size:12px;margin:0 0 6px;">
+                        {esc(o.get('brand_name', ''))} &middot; Size {esc(o.get('size', ''))}
+                        {' &middot; ' + when_str if when_str else ''}
+                    </p>
+                    <a href="{link}" style="color:#39FF14;font-size:12px;font-weight:bold;">
+                        Track this order →
+                    </a>
+                </td>
+            </tr>
+        """)
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#F3F4F6;padding:40px;">
+        <h1 style="color:#39FF14;font-size:24px;margin-bottom:8px;">UNVEILED THREADS</h1>
+        <hr style="border:1px solid #27272A;margin:16px 0;">
+        <h2 style="color:#fff;font-size:20px;">Here are your tracking links</h2>
+        <p style="color:#9CA3AF;line-height:1.6;">
+            You asked us to re-send the tracking links for the orders you placed as a guest.
+            Bookmark these — they're the only way back to your orders unless you create an account
+            with this email.
+        </p>
+        <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+            {''.join(rows)}
+        </table>
+        <p style="color:#9CA3AF;font-size:12px;line-height:1.6;">
+            Didn't request this? Ignore the email — nothing has changed, and the links expire with the order.
+        </p>
+        <hr style="border:1px solid #27272A;margin:24px 0;">
+        <p style="color:#9CA3AF;font-size:12px;">Unveiled Threads — UK's marketplace for independent streetwear</p>
+    </div>
+    """
+
+    if not RESEND_API_KEY:
+        logger.info(f"[MOCK GUEST RECOVERY EMAIL] To: {email} | {len(orders)} orders")
+        return
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [email],
+        "subject": "Your Unveiled Threads tracking links",
+        "html": html,
+    }
+    try:
+        await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"[GUEST RECOVERY EMAIL SENT] To: {email} | {len(orders)} orders")
+    except Exception as e:
+        logger.warning(f"[GUEST RECOVERY EMAIL FAILED] To: {email} | {e}")
+
+
 def _order_receipt(order: dict) -> dict:
     return {
         "id": str(order.get("_id")) if order.get("_id") else None,
