@@ -1,3 +1,4 @@
+# ruff: noqa: F403, F405
 # Split from the original server.py monolith — code is verbatim.
 # All modules share the single `api_router` from core; route registration
 # order is preserved by the import order in server.py.
@@ -10,7 +11,7 @@ from core import *  # noqa: F401,F403
 async def create_order_checkout(purchase: ProductPurchaseRequest, request: Request):
     user = await get_current_user(request)
     
-    product = await db.products.find_one({"_id": ObjectId(purchase.product_id)})
+    product = await db.products.find_one({"_id": safe_object_id(purchase.product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
@@ -197,7 +198,7 @@ async def create_order_checkout_guest(payload: GuestCheckoutRequest, request: Re
     NO authentication. NO password. The lookup_token is the ONLY way back
     to this order without later signing up with the same email (which
     auto-links via /auth/register + /auth/login)."""
-    product = await db.products.find_one({"_id": ObjectId(payload.product_id)})
+    product = await db.products.find_one({"_id": safe_object_id(payload.product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     if product.get("status") == "draft":
@@ -319,10 +320,14 @@ async def create_order_checkout_guest(payload: GuestCheckoutRequest, request: Re
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
     now = datetime.now(timezone.utc)
+    # Lowercase the buyer email at write time so the auth.py auto-link query
+    # (`{buyer_email: email.lower(), buyer_id: None}`) matches guests who
+    # typed a capital letter (common with mobile auto-capitalisation).
+    buyer_email_norm = payload.buyer_email.strip().lower()
     order_doc = {
         "session_id": session.id,
         "buyer_id": None,                       # ← key guest marker
-        "buyer_email": payload.buyer_email,
+        "buyer_email": buyer_email_norm,
         "buyer_name": payload.shipping_address.name,
         "product_id": str(product["_id"]),
         "product_name": product["name"],

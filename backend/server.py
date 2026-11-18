@@ -1,3 +1,4 @@
+# ruff: noqa: F403, F405
 # Unveiled Threads API — app assembly.
 # The old monolith was split into core.py (shared foundation) and routes/*.
 from core import *  # noqa: F401,F403

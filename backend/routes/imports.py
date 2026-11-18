@@ -1,3 +1,4 @@
+# ruff: noqa: F403, F405
 # CSV product-import for brands. Split out of routes/products.py to keep the
 # core CRUD file focused. All imports land as `status="draft"` so nothing
 # reaches buyers without an explicit publish step.

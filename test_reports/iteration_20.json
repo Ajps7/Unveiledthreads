@@ -1,0 +1,49 @@
+{
+  "summary": "Iter20 — tested Guest Checkout end to end. 27 backend tests in a new pytest file. Some run in-process through an httpx ASGITransport against server.app, with stripe_sdk.checkout.Session.create and get_stripe_session_status monkeypatched. The rest run against the live REACT_APP_BACKEND_URL. 25/27 pass. Two backend bugs are confirmed. (1) Guest buyer_email is stored without lowercasing, so a mixed-case guest email is never auto-linked on register/login. (2) A malformed product_id returns 500 (InvalidId) instead of 404. Everything else in the review list works. That covers: the order shape (buyer_id=null, guest_order=true, initiated, shipping_address, lookup_token); server-side pricing that ignores client hints (fee from calculate_buyer_fee, credit 0, total = price + fee + shipping, £6 cap); pre-order within limit (ship date copied) and sold out (409); and draft/non-existent product (404), out-of-stock (400), bad size (400) and brand not onboarded (400), all without creating an order doc. Also working: marketing opt-in creates one row per email (deduped, including mixed case) and no row when unticked; lookup returns a trimmed view, and wrong, missing or malformed ids/tokens give 404; status polling with the token works, a wrong or missing token gives 404, and the linked authed owner can poll without a token; auto-link on register and login leaves other emails untouched; authed /orders/checkout is unchanged ({url, session_id}, buyer_id set, guest_order unset). Rate limits hold: 5/min on checkout and 30/min on lookup. Frontend (Playwright, with the guest POST intercepted): the form renders the product summary; required fields block submission; the POST body is correct (email trimmed, country uppercased, opt-in true); sessionStorage guest_lookup_token is saved and the page redirects to the returned URL; with no size param a toast shows; a logged-in user is redirected to /products/:id. /track shows status, courier and tracking number, total, updates and the 'set a password' card. A wrong token shows the friendly 'We couldn't find that order / Order not found' message, and missing params show the missing-information message.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/orders/checkout/guest + POST /api/auth/register|login", "issue": "Guest order stores buyer_email exactly as typed (e.g. 'Jane@Example.com'), but the auto-link query uses the lowercased email ({buyer_email: email.lower(), buyer_id: None}). Any guest who types a capital letter (common with mobile auto-capitalisation) never gets their orders linked. Reproduced in test_mixed_case_guest_email_links_on_register. Fix: store payload.buyer_email.lower() in order_doc (and optionally pass the lowercased email to Stripe customer_email), or link case-insensitively.", "priority": "HIGH"},
+      {"endpoint": "POST /api/orders/checkout/guest (also POST /api/orders/checkout)", "issue": "A malformed product_id (e.g. 'not-an-objectid') raises bson InvalidId and returns 500. Fix: use safe_object_id(payload.product_id) from core, which raises 404.", "priority": "HIGH"},
+      {"endpoint": "Stripe config (backend/.env)", "issue": "STRIPE_API_KEY starts with 'pk_live_', which is a PUBLISHABLE key. Stripe server-side calls (Session.create/retrieve) need a secret (sk_) or restricted (rk_) key. Backend log: \"The provided key 'pk_live_***' does not have access to account...\". Real checkouts, authed and guest, will fail until this is a secret key. Verify this in the deployment env too.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/auth/register auto-link", "issue": "Security: registration does not verify the email, yet it immediately adopts every guest order with that email. Anyone can register with a victim's email and see their orders, including shipping_address, through GET /orders/my-orders. Recommend linking only after email verification (or on login once the email is verified)."},
+      {"endpoint": "GET /api/orders/my-orders", "issue": "Returns the raw order doc, including lookup_token, stripe_account_id, shipping_address and brand_payout. Trim it the same way as /orders/lookup."},
+      {"endpoint": "429 responses", "issue": "The rate-limit handler returns {error: ...}, not {detail: ...}, so /track shows 'Order not found' to a rate-limited user, which is misleading. The frontend could special-case status 429."},
+      {"endpoint": "Pre-order limit count", "issue": "The count includes 'initiated' orders. Abandoned guest checkouts (no account, so easy to spam within the 5/min limit) reserve pre-order slots until reconcile marks them expired. This is pre-existing behaviour, but guest checkout makes it easier to abuse."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "GuestCheckout 'Or sign in' link", "issue": "Links to /login?next=/products/:id, but Login.js ignores `next` and always navigates to '/'. The user loses their product.", "selector": "a[href^='/login?next=']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Guest Stripe redirect → /order/success?guest=1&token=… → /track", "issue": "Not testable end to end in preview (no real connected account, and a pk_ key). Only the token-authorised status endpoint and the /track rendering were verified.", "affected_selectors": ["guest-track-order-button", "guest-upgrade-card"]}
+    ],
+    "design_issues": [
+      {"screen": "Guest checkout", "issues": ["Only the item price and shipping are shown. The Buyer Protection fee and the total are not, although the PDP shows them. The buyer first sees the full total on Stripe. Add the fee line and total for transparency.", "In one screenshot the 'Continue to secure payment' button looked dark with low-contrast text. Its computed style is green with black text, so it may just have been a transition state. Worth a visual check."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter20_guest_checkout.py", "/app/test_reports/pytest/iter20_guest.xml"],
+  "action_items": [
+    "Lowercase buyer_email when storing guest orders (orders.py ~line 325) so auto-link works for mixed-case emails",
+    "Use safe_object_id() for product_id in /orders/checkout/guest and /orders/checkout to return 404, not 500",
+    "Replace STRIPE_API_KEY (currently pk_live_ publishable) with a secret sk_/rk_ key",
+    "Consider gating register auto-link on email verification; trim sensitive fields from /orders/my-orders",
+    "Honour ?next= in Login.js; show the Buyer Protection fee and total on the guest checkout page",
+    "Update /app/memory/test_credentials.md: demo@threadandbone.uk does not exist in the DB (login returns 401)"
+  ],
+  "critical_code_review_comments": [
+    "create_order_checkout and create_order_checkout_guest duplicate about 150 lines (validation, line items, Stripe call, order doc). Extract a shared _build_checkout() helper.",
+    "routes/orders.py is 751 lines (over 700). Split checkout / lookup / settlement.",
+    "/track has no manual entry form (it reads order_id and token from the URL only). That matches the email-link design, but a guest who lost the link has no recovery path, such as 'email me my tracking link'."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter20_guest_checkout.py"],
+  "success_rate": {"backend": "93% (25/27)", "frontend": "100% of testable flows"},
+  "test_credentials": "Admin login works. Demo brand demo@threadandbone.uk is MISSING from the DB, so its credentials are stale.",
+  "seed_data_creation": "The pytest file creates TEST_Brand_*/TEST_Prod_* docs, cs_test_TEST_* orders and payment_transactions, test_*@example.com users and subscribers, and deletes all of them by id at module teardown (verified 0 left). One UI-test order was inserted and deleted by id.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run `cd /app/backend && python -m pytest tests/test_iter20_guest_checkout.py -p no:cacheprovider`. The in-process layer monkeypatches Stripe and disables the in-process limiter. The live layer relies on conftest's /api/__test/reset-limiter. The last test (lookup 30/min) leaves the live lookup bucket exhausted, so reset the limiter before any UI test of /track. Two tests are expected to fail until the fixes land: mixed-case auto-link and malformed product_id.",
+  "rca of the issue": "Mixed-case link: orders.py stores payload.buyer_email verbatim, while auth.py lowercases before update_many({buyer_email: email}). Exact-match Mongo query, so no match. Malformed id: ObjectId(payload.product_id) is called outside a try, so InvalidId becomes a 500."
+}

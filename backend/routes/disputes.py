@@ -1,3 +1,4 @@
+# ruff: noqa: F403, F405
 # Split from the original server.py monolith — code is verbatim.
 # All modules share the single `api_router` from core; route registration
 # order is preserved by the import order in server.py.

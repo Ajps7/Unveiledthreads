@@ -1,3 +1,4 @@
+# ruff: noqa: F403, F405
 # Brand of the Week — weekly hybrid auto-rotation with a 24h admin veto window.
 #
 # CYCLE:
