@@ -55,6 +55,14 @@ async def create_product(product: ProductCreate, request: Request):
         "is_preorder": product.is_preorder,
         "preorder_ship_date": product.preorder_ship_date.isoformat() if product.preorder_ship_date else None,
         "preorder_limit": product.preorder_limit,
+        # ---- Full-set / tracksuit shape (default 'single' for backwards compat) ----
+        "listing_type": product.listing_type,
+        "set_components": [c.model_dump() for c in product.set_components] if product.set_components else None,
+        "sizing_mode": product.sizing_mode,
+        "top_sizes": product.top_sizes,
+        "bottom_sizes": product.bottom_sizes,
+        "sold_separately": product.sold_separately,
+        "component_prices": [cp.model_dump() for cp in product.component_prices] if product.component_prices else None,
         # Structured description (hidden field-by-field on the frontend if empty)
         "story": product.story,
         "details": product.details,
@@ -328,6 +336,50 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
             if product.get("moderation_status") in (None, "needs_review") or new_urls:
                 update_fields["moderation_status"] = "needs_review" if has_unverified else "passed"
 
+    # ---- Set listing merge-safety ----
+    # If the caller is converting between single ↔ set, wipe the now-invalid
+    # fields so stale data doesn't linger on the doc. Keep title/price/images
+    # — only the type-specific bits reset.
+    new_type = update_fields.get("listing_type")
+    cur_type = product.get("listing_type") or "single"
+    effective_type = new_type or cur_type
+
+    if new_type and new_type != cur_type:
+        if new_type == "single":
+            # Going set → single. Caller must send `sizes`; clear set fields.
+            for k in ("set_components", "sizing_mode", "top_sizes", "bottom_sizes",
+                      "sold_separately", "component_prices"):
+                update_fields.setdefault(k, None)
+        else:
+            # Going single → set. Caller must send set fields; clear single sizes.
+            update_fields.setdefault("sizes", [])
+
+    # Enforce the right shape for the effective type after merge.
+    if effective_type == "set":
+        merged_sizing_mode = update_fields.get("sizing_mode") or product.get("sizing_mode")
+        merged_components = update_fields.get("set_components")
+        if merged_components is None:
+            merged_components = product.get("set_components")
+        if merged_components is not None and len(merged_components) < 2:
+            raise HTTPException(status_code=422, detail="A set needs at least 2 components.")
+        if merged_sizing_mode not in ("unified", "split"):
+            raise HTTPException(status_code=422, detail="Sets require sizing_mode: 'unified' or 'split'.")
+        if merged_sizing_mode == "split":
+            merged_top = update_fields.get("top_sizes") if "top_sizes" in update_fields else product.get("top_sizes")
+            merged_bot = update_fields.get("bottom_sizes") if "bottom_sizes" in update_fields else product.get("bottom_sizes")
+            if not merged_top:
+                raise HTTPException(status_code=422, detail="Split sizing needs at least one top size.")
+            if not merged_bot:
+                raise HTTPException(status_code=422, detail="Split sizing needs at least one bottom size.")
+        else:
+            merged_sizes = update_fields.get("sizes") if "sizes" in update_fields else product.get("sizes")
+            if not merged_sizes:
+                raise HTTPException(status_code=422, detail="A unified set needs at least one size.")
+    else:  # single
+        merged_sizes = update_fields.get("sizes") if "sizes" in update_fields else product.get("sizes")
+        if not merged_sizes:
+            raise HTTPException(status_code=422, detail="At least one size is required.")
+
     if update_fields:
         await db.products.update_one(
             {"_id": safe_object_id(product_id)},
@@ -339,6 +391,45 @@ async def update_product(product_id: str, payload: ProductUpdate, request: Reque
     del updated["_id"]
     
     return updated
+
+
+@api_router.post("/products/{product_id}/duplicate")
+async def duplicate_product(product_id: str, request: Request):
+    """Re-list / duplicate: creates a brand-new product doc carrying over
+    every seller-facing field (title, description, price, images,
+    sizes, stock, set config, structured description, pre-order flags)
+    so a brand can repost a sold-out drop in seconds. Stock is kept as-is
+    so they only need to adjust quantities if anything changed.
+
+    The copy is created as `status: 'draft'` so the brand lands back on the
+    edit view and publishes deliberately — avoids an accidental re-publish
+    of an identical listing beside the original.
+    """
+    user = await require_brand(request)
+
+    original = await db.products.find_one({"_id": safe_object_id(product_id)})
+    if not original:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand or str(brand["_id"]) != original["brand_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to duplicate this product")
+
+    # Strip fields that must NOT be copied (identity + lifecycle state).
+    skip = {
+        "_id", "id", "created_at", "updated_at", "views", "sales_count",
+        "is_dead_stock", "dead_stock_at", "dead_stock_price_original",
+    }
+    copy_doc = {k: v for k, v in original.items() if k not in skip}
+    copy_doc["name"] = f"{original.get('name', 'Listing')} (Copy)"
+    copy_doc["status"] = "draft"
+    copy_doc["created_at"] = datetime.now(timezone.utc)
+    # Keep image moderation verdicts intact — those images were already vetted.
+    result = await db.products.insert_one(copy_doc)
+    new_id = str(result.inserted_id)
+    logger.info(f"[DUPLICATE] brand={brand['_id']} src={product_id} new={new_id}")
+    return {"id": new_id, "name": copy_doc["name"], "status": "draft"}
+
 
 @api_router.delete("/admin/brands/{brand_id}")
 async def admin_delete_brand(brand_id: str, request: Request, delete_user: bool = False, force: bool = False):

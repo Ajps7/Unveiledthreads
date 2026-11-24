@@ -8,7 +8,8 @@ import { ProductPhotos } from '../components/product-form/ProductPhotos';
 import { ProductDetailsFields } from '../components/product-form/ProductDetailsFields';
 import { ProductSizes } from '../components/product-form/ProductSizes';
 import { ProductPricing } from '../components/product-form/ProductPricing';
-import { ArrowLeft, Plus, Loader2 } from 'lucide-react';
+import { SetBuilder } from '../components/product-form/SetBuilder';
+import { ArrowLeft, Plus, Loader2, Shirt, Layers } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -36,6 +37,15 @@ export default function AddProduct() {
     is_preorder: false,
     preorder_ship_date: '',
     preorder_limit: '',
+    // ---- Full-set / tracksuit shape (default = single) ----
+    listing_type: 'single',
+    set_components: [
+      { label: 'Top',    role: 'top' },
+      { label: 'Bottom', role: 'bottom' },
+    ],
+    sizing_mode: 'split',       // sensible default for tracksuits
+    top_sizes: [],
+    bottom_sizes: [],
     // Structured description (all optional)
     story: '',
     details_raw: '',   // newline-separated bullets in the textarea
@@ -71,12 +81,38 @@ export default function AddProduct() {
     e.preventDefault();
     setError('');
 
+    const isSet = form.listing_type === 'set';
+
     if (!form.name.trim()) { setError('Product name is required'); return; }
     if (!form.description.trim()) { setError('Description is required'); return; }
     if (!form.price || parseFloat(form.price) <= 0) { setError('Valid price is required'); return; }
     if (!form.category) { setError('Category is required'); return; }
-    if (form.sizes.length === 0) { setError('Select at least one size'); return; }
     if (form.images.length === 0) { setError('Upload at least one photo'); return; }
+
+    // Branch: single vs set validation
+    if (!isSet) {
+      if (form.sizes.length === 0) { setError('Select at least one size'); return; }
+    } else {
+      if (!form.set_components || form.set_components.length < 2) {
+        setError('A set needs at least 2 components (a Top and a Bottom)'); return;
+      }
+      if (form.set_components.some((c) => !c.label || !c.label.trim())) {
+        setError('Give every piece in the set a label (e.g. "Hoodie", "Trousers")'); return;
+      }
+      if (form.sizing_mode === 'unified') {
+        if (!form.sizes || form.sizes.length === 0) {
+          setError('Pick at least one set size'); return;
+        }
+      } else {
+        if (!form.top_sizes || form.top_sizes.length === 0) {
+          setError('Pick at least one top size'); return;
+        }
+        if (!form.bottom_sizes || form.bottom_sizes.length === 0) {
+          setError('Pick at least one bottom size'); return;
+        }
+      }
+    }
+
     // Pre-order allows stock=0 so we only enforce presence, not > 0.
     if (form.stock === '' || parseInt(form.stock) < 0) { setError('Stock quantity is required (0 is allowed for pre-orders)'); return; }
     if (form.is_preorder) {
@@ -89,28 +125,45 @@ export default function AddProduct() {
 
     setSubmitting(true);
     try {
-      await axios.post(
-        `${API}/api/products`,
-        {
-          name: form.name.trim(),
-          description: form.description.trim(),
-          price: parseFloat(form.price),
-          shipping_cost: parseFloat(form.shipping_cost) || 0,
-          category: form.category,
-          sizes: form.sizes,
-          images: form.images,
-          stock: parseInt(form.stock),
-          colour: form.colour || null,
-          material: form.material || null,
-          gender: form.gender,
-          condition: form.condition,
-          fit: form.fit || null,
-          is_preorder: form.is_preorder,
-          preorder_ship_date: form.is_preorder && form.preorder_ship_date ? form.preorder_ship_date : null,
-          preorder_limit: form.is_preorder && form.preorder_limit ? parseInt(form.preorder_limit) : null,
-        },
-        { withCredentials: true }
-      );
+      // Auto-apply the Tracksuits & Sets category for set listings so they're
+      // discoverable on the shop. Brand can still override if they want.
+      const category = isSet && form.category === '' ? 'Tracksuits & Sets' : form.category;
+
+      const payload = {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        price: parseFloat(form.price),
+        shipping_cost: parseFloat(form.shipping_cost) || 0,
+        category,
+        images: form.images,
+        stock: parseInt(form.stock),
+        colour: form.colour || null,
+        material: form.material || null,
+        gender: form.gender,
+        condition: form.condition,
+        fit: form.fit || null,
+        is_preorder: form.is_preorder,
+        preorder_ship_date: form.is_preorder && form.preorder_ship_date ? form.preorder_ship_date : null,
+        preorder_limit: form.is_preorder && form.preorder_limit ? parseInt(form.preorder_limit) : null,
+        listing_type: form.listing_type,
+      };
+
+      if (!isSet) {
+        payload.sizes = form.sizes;
+      } else {
+        payload.set_components = form.set_components.map((c) => ({ label: c.label.trim(), role: c.role }));
+        payload.sizing_mode = form.sizing_mode;
+        if (form.sizing_mode === 'unified') {
+          payload.sizes = form.sizes;
+        } else {
+          payload.top_sizes = form.top_sizes;
+          payload.bottom_sizes = form.bottom_sizes;
+          // Backend requires `sizes` to be a list but it can be empty for split sets.
+          payload.sizes = [];
+        }
+      }
+
+      await axios.post(`${API}/api/products`, payload, { withCredentials: true });
 
       navigate('/brand/dashboard');
     } catch (err) {
@@ -157,6 +210,54 @@ export default function AddProduct() {
         )}
 
         <form onSubmit={handleSubmit}>
+          {/* Listing type toggle — defaults to Single so nothing changes for existing sellers */}
+          <div className="border border-white/10 bg-[#0A0A0A] p-6 mb-6" data-testid="listing-type-section">
+            <h2 className="text-lg font-bold text-white uppercase mb-1" style={{ fontFamily: 'Clash Display, sans-serif' }}>
+              Listing type
+            </h2>
+            <p className="text-xs text-[#9CA3AF] mb-4">
+              Pick &ldquo;Full set&rdquo; for tracksuits, co-ords, or any bundle that sells as one.
+            </p>
+            <div className="grid grid-cols-2 gap-3" data-testid="listing-type-toggle">
+              <button
+                type="button"
+                onClick={() => setForm((prev) => ({ ...prev, listing_type: 'single' }))}
+                className={`px-4 py-4 border text-left transition-all flex items-start gap-3 ${
+                  form.listing_type === 'single'
+                    ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]'
+                    : 'border-white/20 text-[#9CA3AF] hover:border-white/40 hover:text-white'
+                }`}
+                data-testid="listing-type-single"
+              >
+                <Shirt className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="block uppercase tracking-wider text-sm font-bold">Single item</span>
+                  <span className="block text-[11px] font-normal normal-case mt-1 opacity-80">
+                    One garment: hoodie, tee, trousers…
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm((prev) => ({ ...prev, listing_type: 'set' }))}
+                className={`px-4 py-4 border text-left transition-all flex items-start gap-3 ${
+                  form.listing_type === 'set'
+                    ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]'
+                    : 'border-white/20 text-[#9CA3AF] hover:border-white/40 hover:text-white'
+                }`}
+                data-testid="listing-type-set"
+              >
+                <Layers className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="block uppercase tracking-wider text-sm font-bold">Full set / Tracksuit</span>
+                  <span className="block text-[11px] font-normal normal-case mt-1 opacity-80">
+                    Multi-piece bundle with its own sizing
+                  </span>
+                </span>
+              </button>
+            </div>
+          </div>
+
           <ProductPhotos
             images={form.images}
             onUpload={handleImageUpload}
@@ -165,7 +266,11 @@ export default function AddProduct() {
 
           <ProductDetailsFields form={form} setForm={setForm} />
 
-          <ProductSizes sizes={form.sizes} onToggle={toggleSize} />
+          {form.listing_type === 'set' ? (
+            <SetBuilder form={form} setForm={setForm} />
+          ) : (
+            <ProductSizes sizes={form.sizes} onToggle={toggleSize} />
+          )}
 
           <ProductPricing form={form} setForm={setForm} />
 

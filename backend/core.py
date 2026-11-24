@@ -138,6 +138,48 @@ def safe_object_id(id_str: str) -> ObjectId:
     except Exception:
         raise HTTPException(status_code=404, detail="Not found")
 
+
+def resolve_purchase_size(product: dict, size: Optional[str],
+                          top_size: Optional[str], bottom_size: Optional[str]) -> tuple[str, dict]:
+    """Given a product doc + incoming size inputs, return:
+      - `display_size`: the flat string stored on the order's `size` field
+                         (e.g. 'M' or 'Top: M / Bottom: L')
+      - `size_detail`:  structured dict on the order:
+                         {mode:'single'|'unified'|'split', size?:..., top_size?:..., bottom_size?:...}
+
+    Raises HTTPException(400) on any invalid combination so both authed and
+    guest checkouts share the same validation and error messages. Single
+    items keep their original shape — this helper is a no-op for them.
+    """
+    listing_type = product.get("listing_type") or "single"
+
+    # Single item — existing behaviour. One `size` picked from `sizes`.
+    if listing_type == "single":
+        if not size or size not in (product.get("sizes") or []):
+            raise HTTPException(status_code=400, detail="Selected size is not available")
+        return size, {"mode": "single", "size": size}
+
+    # Set listings
+    sizing_mode = product.get("sizing_mode")
+    if sizing_mode == "unified":
+        if not size or size not in (product.get("sizes") or []):
+            raise HTTPException(status_code=400, detail="Selected size is not available")
+        return size, {"mode": "unified", "size": size}
+
+    if sizing_mode == "split":
+        if not top_size or not bottom_size:
+            raise HTTPException(status_code=400, detail="This set needs both a top and a bottom size")
+        if top_size not in (product.get("top_sizes") or []):
+            raise HTTPException(status_code=400, detail="Selected top size is not available")
+        if bottom_size not in (product.get("bottom_sizes") or []):
+            raise HTTPException(status_code=400, detail="Selected bottom size is not available")
+        display = f"Top: {top_size} / Bottom: {bottom_size}"
+        return display, {"mode": "split", "top_size": top_size, "bottom_size": bottom_size}
+
+    # Set with unknown sizing_mode — treat as misconfigured listing.
+    raise HTTPException(status_code=400, detail="This listing is misconfigured — please contact the brand")
+
+
 # Create the main app
 app = FastAPI(title="Unveiled Threads API")
 
@@ -189,7 +231,9 @@ class GuestCheckoutRequest(BaseModel):
     any auth token — the lookup_token in the resulting order is the only
     way back to this purchase without an account."""
     product_id: str
-    size: str
+    size: Optional[str] = None       # for single items + unified sets
+    top_size: Optional[str] = None   # for split-sizing sets
+    bottom_size: Optional[str] = None
     origin_url: str
     buyer_email: EmailStr
     shipping_address: GuestShippingAddress
@@ -267,12 +311,40 @@ GENDERS = ["unisex", "mens", "womens"]
 CONDITIONS = ["new", "like_new", "used"]
 
 
+class SetComponent(BaseModel):
+    """One garment in a multi-piece set listing (tracksuit/co-ord).
+
+    `role` drives the buyer-facing size selector on the PDP — a 'top' and a
+    'bottom' combine into a split size pair, 'accessory' pieces are listed
+    for display only and share the set's size scale.
+    """
+    label: str = Field(min_length=1, max_length=40)
+    role: str = Field(default="top")  # 'top' | 'bottom' | 'accessory'
+
+    @field_validator("role")
+    @classmethod
+    def _valid_role(cls, v):
+        if v not in ("top", "bottom", "accessory"):
+            raise ValueError("role must be one of: top, bottom, accessory")
+        return v
+
+
+class ComponentPrice(BaseModel):
+    """Optional per-component price when a set is also sold piece-by-piece.
+
+    Not surfaced in the v1 UI — stored forward-compatibly so a later release
+    can add 'buy the top on its own' without a schema migration.
+    """
+    label: str
+    price: float = Field(gt=0, le=10000)
+
+
 class ProductCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     description: str = Field(min_length=10, max_length=3000)
     price: float = Field(gt=0, le=10000)
     category: str = Field(min_length=2, max_length=50)
-    sizes: List[str] = Field(min_length=1, max_length=15)
+    sizes: List[str] = Field(default_factory=list, max_length=15)
     images: List[str] = Field(min_length=1, max_length=10)
     stock: int = Field(default=0, ge=0, le=100000)
     shipping_cost: float = Field(default=3.99, ge=0, le=100)
@@ -285,6 +357,16 @@ class ProductCreate(BaseModel):
     is_preorder: bool = False
     preorder_ship_date: Optional[date] = None  # noqa: F821  (date imported below)
     preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
+    # ---- Full-set / tracksuit fields (added 2026-11) ----
+    # Default is 'single' so every existing caller keeps the single-item shape
+    # for free. Set listings use the extra fields below.
+    listing_type: str = "single"  # 'single' | 'set'
+    set_components: Optional[List[SetComponent]] = None
+    sizing_mode: Optional[str] = None  # 'unified' | 'split' (only when listing_type='set')
+    top_sizes: Optional[List[str]] = None       # when sizing_mode='split'
+    bottom_sizes: Optional[List[str]] = None    # when sizing_mode='split'
+    sold_separately: bool = False
+    component_prices: Optional[List[ComponentPrice]] = None
     # ---- Optional structured description (all backward-compatible) ----
     # Empty/omitted fields are hidden entirely on the frontend — no dangling labels.
     story: Optional[str] = Field(default=None, max_length=300)
@@ -318,6 +400,13 @@ class ProductCreate(BaseModel):
                 raise ValueError("Each detail bullet must be 120 characters or fewer")
         return cleaned or None
 
+    @field_validator("listing_type")
+    @classmethod
+    def _valid_listing_type(cls, v):
+        if v not in ("single", "set"):
+            raise ValueError("listing_type must be 'single' or 'set'")
+        return v
+
     @model_validator(mode="after")
     def _validate_preorder(self):
         # A pre-order product MUST commit to a future ship date. Skip on non-
@@ -329,13 +418,40 @@ class ProductCreate(BaseModel):
                 raise ValueError("preorder_ship_date must be a future date")
         return self
 
+    @model_validator(mode="after")
+    def _validate_set_or_single(self):
+        """Branch on listing_type so each shape only validates what it needs.
+
+        Single items keep their old validation (sizes: ≥1). Sets require
+        ≥2 components, a sizing_mode, and the right size fields for that mode.
+        """
+        if self.listing_type == "single":
+            if not self.sizes:
+                raise ValueError("At least one size is required")
+            return self
+
+        # listing_type == 'set'
+        if not self.set_components or len(self.set_components) < 2:
+            raise ValueError("A set needs at least 2 components (e.g. a Top and a Bottom)")
+        if self.sizing_mode not in ("unified", "split"):
+            raise ValueError("Sets require sizing_mode: 'unified' or 'split'")
+        if self.sizing_mode == "unified":
+            if not self.sizes:
+                raise ValueError("A unified set needs at least one size")
+        else:  # split
+            if not self.top_sizes:
+                raise ValueError("Split sizing needs at least one top size")
+            if not self.bottom_sizes:
+                raise ValueError("Split sizing needs at least one bottom size")
+        return self
+
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=120)
     description: Optional[str] = Field(default=None, min_length=10, max_length=3000)
     price: Optional[float] = Field(default=None, gt=0, le=10000)
     category: Optional[str] = Field(default=None, min_length=2, max_length=50)
-    sizes: Optional[List[str]] = Field(default=None, min_length=1, max_length=15)
+    sizes: Optional[List[str]] = Field(default=None, max_length=15)
     images: Optional[List[str]] = Field(default=None, min_length=1, max_length=10)
     stock: Optional[int] = Field(default=None, ge=0, le=100000)
     shipping_cost: Optional[float] = Field(default=None, ge=0, le=100)
@@ -348,6 +464,14 @@ class ProductUpdate(BaseModel):
     is_preorder: Optional[bool] = None
     preorder_ship_date: Optional[date] = None  # noqa: F821
     preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
+    # ---- Set listing fields ----
+    listing_type: Optional[str] = None  # 'single' | 'set'
+    set_components: Optional[List[SetComponent]] = None
+    sizing_mode: Optional[str] = None
+    top_sizes: Optional[List[str]] = None
+    bottom_sizes: Optional[List[str]] = None
+    sold_separately: Optional[bool] = None
+    component_prices: Optional[List[ComponentPrice]] = None
 
     @field_validator("gender")
     @classmethod
@@ -361,6 +485,13 @@ class ProductUpdate(BaseModel):
     def _valid_condition(cls, v):
         if v is not None and v not in CONDITIONS:
             raise ValueError(f"condition must be one of {CONDITIONS}")
+        return v
+
+    @field_validator("listing_type")
+    @classmethod
+    def _valid_listing_type(cls, v):
+        if v is not None and v not in ("single", "set"):
+            raise ValueError("listing_type must be 'single' or 'set'")
         return v
 
     @model_validator(mode="after")
@@ -458,7 +589,9 @@ class CheckoutRequest(BaseModel):
 
 class ProductPurchaseRequest(BaseModel):
     product_id: str
-    size: str
+    size: Optional[str] = None       # single items + unified sets
+    top_size: Optional[str] = None   # split-sizing sets
+    bottom_size: Optional[str] = None
     origin_url: str
 
 class OrderResponse(BaseModel):

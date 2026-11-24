@@ -37,8 +37,9 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
             if current_preorders >= preorder_limit:
                 raise HTTPException(status_code=409, detail="Pre-order sold out.")
 
-    if purchase.size not in product["sizes"]:
-        raise HTTPException(status_code=400, detail="Selected size is not available")
+    display_size, size_detail = resolve_purchase_size(
+        product, purchase.size, purchase.top_size, purchase.bottom_size,
+    )
     
     # Verify brand has completed Stripe Connect onboarding (required for split payments)
     brand_doc = await db.brands.find_one({"_id": ObjectId(product["brand_id"])})
@@ -77,7 +78,7 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "user_id": user["id"],
         "product_id": str(product["_id"]),
         "brand_id": product["brand_id"],
-        "size": purchase.size,
+        "size": display_size,
         "product_price": str(product_price),
         "platform_fee": str(fee_charged),
         "shipping_cost": str(shipping_cost),
@@ -151,7 +152,8 @@ async def create_order_checkout(purchase: ProductPurchaseRequest, request: Reque
         "product_name": product["name"],
         "brand_id": product["brand_id"],
         "brand_name": product["brand_name"],
-        "size": purchase.size,
+        "size": display_size,
+        "size_detail": size_detail,
         "price": product_price,
         "shipping_cost": shipping_cost,
         "platform_fee": fee_charged,
@@ -218,8 +220,9 @@ async def create_order_checkout_guest(payload: GuestCheckoutRequest, request: Re
             if current_preorders >= preorder_limit:
                 raise HTTPException(status_code=409, detail="Pre-order sold out.")
 
-    if payload.size not in product["sizes"]:
-        raise HTTPException(status_code=400, detail="Selected size is not available")
+    display_size, size_detail = resolve_purchase_size(
+        product, payload.size, payload.top_size, payload.bottom_size,
+    )
 
     brand_doc = await db.brands.find_one({"_id": ObjectId(product["brand_id"])})
     if not brand_doc:
@@ -257,7 +260,7 @@ async def create_order_checkout_guest(payload: GuestCheckoutRequest, request: Re
         "guest": "1",
         "product_id": str(product["_id"]),
         "brand_id": product["brand_id"],
-        "size": payload.size,
+        "size": display_size,
         "product_price": str(product_price),
         "platform_fee": str(fee_charged),
         "shipping_cost": str(shipping_cost),
@@ -333,7 +336,8 @@ async def create_order_checkout_guest(payload: GuestCheckoutRequest, request: Re
         "product_name": product["name"],
         "brand_id": product["brand_id"],
         "brand_name": product["brand_name"],
-        "size": payload.size,
+        "size": display_size,
+        "size_detail": size_detail,
         "price": product_price,
         "shipping_cost": shipping_cost,
         "platform_fee": fee_charged,
@@ -415,6 +419,7 @@ async def guest_order_lookup(request: Request, order_id: str, token: str):
         "product_name": order.get("product_name"),
         "brand_name": order.get("brand_name"),
         "size": order.get("size"),
+        "size_detail": order.get("size_detail"),
         "price": order.get("price"),
         "shipping_cost": order.get("shipping_cost"),
         "total_charged": order.get("total_charged"),
@@ -538,6 +543,7 @@ def _order_receipt(order: dict) -> dict:
         "product_name": order.get("product_name"),
         "brand_name": order.get("brand_name"),
         "size": order.get("size"),
+        "size_detail": order.get("size_detail"),
         "price": order.get("price"),
         "platform_fee": order.get("platform_fee"),
         "credit_applied": order.get("credit_applied") or 0,

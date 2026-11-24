@@ -56,11 +56,21 @@ export default function ProductDetail() {
   const { user } = useAuth();
   const [product, setProduct] = useState(null);
   const [selectedSize, setSelectedSize] = useState('');
+  const [selectedTopSize, setSelectedTopSize] = useState('');
+  const [selectedBottomSize, setSelectedBottomSize] = useState('');
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [reviews, setReviews] = useState({ reviews: [], count: 0, avg_product_rating: 0, avg_brand_rating: 0 });
   const [showFeeInfo, setShowFeeInfo] = useState(false);
   const [referralCredit, setReferralCredit] = useState(0);
+
+  // Derive set-aware shape without littering JSX conditionals everywhere.
+  const isSet = product?.listing_type === 'set';
+  const isSplitSet = isSet && product?.sizing_mode === 'split';
+  const isUnifiedSet = isSet && product?.sizing_mode === 'unified';
+  const sizeChoiceComplete = isSplitSet
+    ? !!(selectedTopSize && selectedBottomSize)
+    : !!selectedSize;
 
   useEffect(() => {
     if (!user) { setReferralCredit(0); return; }
@@ -77,7 +87,13 @@ export default function ProductDetail() {
       ]);
       setProduct(prodRes.data);
       setReviews(revRes.data);
-      if (prodRes.data.sizes?.length > 0) setSelectedSize(prodRes.data.sizes[0]);
+      // Preselect sensible defaults per listing type.
+      if (prodRes.data.listing_type === 'set' && prodRes.data.sizing_mode === 'split') {
+        if (prodRes.data.top_sizes?.length > 0) setSelectedTopSize(prodRes.data.top_sizes[0]);
+        if (prodRes.data.bottom_sizes?.length > 0) setSelectedBottomSize(prodRes.data.bottom_sizes[0]);
+      } else if (prodRes.data.sizes?.length > 0) {
+        setSelectedSize(prodRes.data.sizes[0]);
+      }
       // Track view
       axios.post(`${API}/api/analytics/view/${id}`, {}, { withCredentials: true }).catch(() => {});
     } catch (error) {
@@ -92,18 +108,29 @@ export default function ProductDetail() {
   }, [fetchProduct]);
 
   const handlePurchase = async () => {
-    if (!selectedSize) return;
+    if (!sizeChoiceComplete) return;
+    // Build the size payload branch:
+    //   single + unified set → {size}
+    //   split set            → {top_size, bottom_size}
+    const sizePayload = isSplitSet
+      ? { top_size: selectedTopSize, bottom_size: selectedBottomSize }
+      : { size: selectedSize };
+
     // Guest checkout: unauthenticated buyers go through the lightweight
-    // email+shipping form instead of being bounced to /login.
+    // email+shipping form instead of being bounced to /login. We encode
+    // the chosen sizes as query params so the guest form reads them back.
     if (!user) {
-      window.location.href = `/checkout/guest/${id}?size=${encodeURIComponent(selectedSize)}`;
+      const qs = isSplitSet
+        ? `top_size=${encodeURIComponent(selectedTopSize)}&bottom_size=${encodeURIComponent(selectedBottomSize)}`
+        : `size=${encodeURIComponent(selectedSize)}`;
+      window.location.href = `/checkout/guest/${id}?${qs}`;
       return;
     }
     setPurchasing(true);
     try {
       const response = await axios.post(
         `${API}/api/orders/checkout`,
-        { product_id: id, size: selectedSize, origin_url: window.location.origin },
+        { product_id: id, origin_url: window.location.origin, ...sizePayload },
         { withCredentials: true }
       );
       window.location.href = response.data.url;
@@ -223,8 +250,18 @@ export default function ProductDetail() {
 
             <ProductDescription product={product} />
 
-            {/* Sizes */}
-            {product.sizes?.length > 0 && (
+            {/* Set components summary — only for set listings */}
+            {isSet && product.set_components?.length > 0 && (
+              <div className="mb-6 border border-[#39FF14]/30 bg-[#39FF14]/5 p-4" data-testid="set-components-summary">
+                <p className="text-[11px] uppercase tracking-wider text-[#39FF14] mb-1">Set includes</p>
+                <p className="text-white text-sm font-medium">
+                  {product.set_components.map((c) => c.label).join(' + ')}
+                </p>
+              </div>
+            )}
+
+            {/* Sizes — branches on listing type */}
+            {!isSet && product.sizes?.length > 0 && (
               <div className="mb-8">
                 <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-3">Size</label>
                 <div className="flex flex-wrap gap-2">
@@ -238,6 +275,59 @@ export default function ProductDetail() {
                       {size}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {isUnifiedSet && product.sizes?.length > 0 && (
+              <div className="mb-8">
+                <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-3">Set size</label>
+                <div className="flex flex-wrap gap-2">
+                  {product.sizes.map((size) => (
+                    <button
+                      key={size}
+                      onClick={() => setSelectedSize(size)}
+                      className={`px-4 py-2 border transition-all ${selectedSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                      data-testid={`unified-size-${size}`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {isSplitSet && (
+              <div className="mb-8 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-3">Top size</label>
+                  <div className="flex flex-wrap gap-2" data-testid="top-size-row">
+                    {(product.top_sizes || []).map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setSelectedTopSize(size)}
+                        className={`px-3 py-2 border text-sm transition-all ${selectedTopSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                        data-testid={`top-size-${size}`}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-3">Bottom size</label>
+                  <div className="flex flex-wrap gap-2" data-testid="bottom-size-row">
+                    {(product.bottom_sizes || []).map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setSelectedBottomSize(size)}
+                        className={`px-3 py-2 border text-sm transition-all ${selectedBottomSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                        data-testid={`bottom-size-${size}`}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -277,7 +367,7 @@ export default function ProductDetail() {
             <div className="flex gap-4 mb-4">
               <Button
                 className="btn-primary flex-1"
-                disabled={(!product.is_preorder && product.stock === 0) || !selectedSize || purchasing || product.seller_payments_ready === false}
+                disabled={(!product.is_preorder && product.stock === 0) || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}
                 onClick={handlePurchase}
                 data-testid="buy-now-button"
               >

@@ -23,6 +23,13 @@ export default function GuestCheckout() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const size = sp.get('size') || '';
+  const topSize = sp.get('top_size') || '';
+  const bottomSize = sp.get('bottom_size') || '';
+
+  // Combined display for the product summary line.
+  const displaySize = topSize && bottomSize
+    ? `Top: ${topSize} / Bottom: ${bottomSize}`
+    : size;
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,15 +70,19 @@ export default function GuestCheckout() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!size) {
+    const hasSplitSizes = !!(topSize && bottomSize);
+    if (!size && !hasSplitSizes) {
       toast.error('No size selected — go back and pick one.');
       return;
     }
     setSubmitting(true);
     try {
+      const sizePayload = hasSplitSizes
+        ? { top_size: topSize, bottom_size: bottomSize }
+        : { size };
       const { data } = await axios.post(`${API}/api/orders/checkout/guest`, {
         product_id: productId,
-        size,
+        ...sizePayload,
         origin_url: window.location.origin,
         buyer_email: form.buyer_email.trim(),
         shipping_address: {
@@ -149,7 +160,7 @@ export default function GuestCheckout() {
             )}
             <div className="flex-1 min-w-0">
               <p className="text-white font-medium truncate">{product?.name}</p>
-              <p className="text-xs text-[#9CA3AF]">{product?.brand_name} · Size {size}</p>
+              <p className="text-xs text-[#9CA3AF]">{product?.brand_name} · Size {displaySize}</p>
             </div>
           </div>
           {product && (() => {

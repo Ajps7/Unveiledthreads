@@ -9,7 +9,7 @@ import { EditListingDialog } from '../components/my-listings/EditListingDialog';
 import { MoveToDeadStockDialog } from '../components/my-listings/MoveToDeadStockDialog';
 import { RequestQuotaDialog } from '../components/my-listings/RequestQuotaDialog';
 import {
-  Plus, Package, Edit, Trash2, ExternalLink, Eye, Loader2, ArrowLeft, Search, X, Tag, RotateCcw
+  Plus, Package, Edit, Trash2, ExternalLink, Eye, Loader2, ArrowLeft, Search, X, Tag, RotateCcw, Copy
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -143,23 +143,78 @@ export default function MyListings() {
       stock: product.stock.toString(),
       sizes: product.sizes || [],
       images: product.images || [],
+      // ---- Set fields (safe defaults so a single item can convert cleanly) ----
+      listing_type: product.listing_type || 'single',
+      set_components: product.set_components && product.set_components.length
+        ? product.set_components
+        : [{ label: 'Top', role: 'top' }, { label: 'Bottom', role: 'bottom' }],
+      sizing_mode: product.sizing_mode || 'split',
+      top_sizes: product.top_sizes || [],
+      bottom_sizes: product.bottom_sizes || [],
     });
+  };
+
+  const handleDuplicate = async (product) => {
+    try {
+      const { data } = await axios.post(
+        `${API}/api/products/${product.id}/duplicate`,
+        {},
+        { withCredentials: true }
+      );
+      // Land the user straight on the new draft's edit dialog so they can
+      // tune and publish in one flow. Refetching first ensures the newly-
+      // created product is in the local list before we open the editor.
+      await fetchData();
+      // Fetch the fresh doc (not the stale one from fetchData's snapshot) and
+      // pre-populate editForm with it. Easiest: look it up in the list after refresh.
+      setTimeout(() => {
+        setProducts((prev) => {
+          const found = prev.find((p) => p.id === data.id);
+          if (found) openEdit(found);
+          return prev;
+        });
+      }, 0);
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to duplicate listing');
+    }
   };
 
   const handleSaveEdit = async () => {
     if (!editProduct) return;
     setSaving(true);
     try {
-      await axios.put(`${API}/api/products/${editProduct.id}`, {
+      const isSet = editForm.listing_type === 'set';
+      const payload = {
         name: editForm.name,
         description: editForm.description,
         price: parseFloat(editForm.price),
         shipping_cost: parseFloat(editForm.shipping_cost) || 0,
         category: editForm.category,
         stock: parseInt(editForm.stock),
-        sizes: editForm.sizes,
         images: editForm.images,
-      }, { withCredentials: true });
+        listing_type: editForm.listing_type,
+      };
+      if (!isSet) {
+        payload.sizes = editForm.sizes;
+        // Explicitly clear set fields so single→set→single round-trips are clean.
+        payload.set_components = null;
+        payload.sizing_mode = null;
+        payload.top_sizes = null;
+        payload.bottom_sizes = null;
+      } else {
+        payload.set_components = (editForm.set_components || []).map((c) => ({ label: (c.label || '').trim(), role: c.role }));
+        payload.sizing_mode = editForm.sizing_mode;
+        if (editForm.sizing_mode === 'unified') {
+          payload.sizes = editForm.sizes;
+          payload.top_sizes = null;
+          payload.bottom_sizes = null;
+        } else {
+          payload.top_sizes = editForm.top_sizes;
+          payload.bottom_sizes = editForm.bottom_sizes;
+          payload.sizes = [];
+        }
+      }
+      await axios.put(`${API}/api/products/${editProduct.id}`, payload, { withCredentials: true });
       setEditProduct(null);
       fetchData();
     } catch (e) {
@@ -362,6 +417,15 @@ export default function MyListings() {
                           <Eye className="w-3 h-3 mr-1" /> View
                         </Button>
                       </Link>
+                      <Button
+                        variant="ghost"
+                        className="text-[#39FF14] hover:text-[#39FF14] hover:bg-[#39FF14]/10 px-2"
+                        onClick={() => handleDuplicate(product)}
+                        data-testid={`duplicate-${product.id}`}
+                        title="Duplicate / Re-list"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2"
