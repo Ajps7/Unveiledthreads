@@ -420,33 +420,35 @@ export default function MyListings() {
                       {product.shipping_cost > 0 ? ` · Shipping: £${product.shipping_cost.toFixed(2)}` : ' · Free shipping'}
                     </p>
 
-                    <div className="flex gap-2 mb-2">
+                    <div className="flex flex-wrap gap-2 mb-2">
                       <Button
-                        className="btn-secondary flex-1 text-xs py-1"
+                        className="btn-secondary flex-1 min-w-0 min-h-[40px] text-xs"
                         onClick={() => openEdit(product)}
                         data-testid={`edit-${product.id}`}
                       >
-                        <Edit className="w-3 h-3 mr-1" /> Edit
+                        <Edit className="w-3.5 h-3.5 mr-1" /> Edit
                       </Button>
-                      <Link to={`/products/${product.id}`} className="flex-1">
-                        <Button className="btn-secondary w-full text-xs py-1">
-                          <Eye className="w-3 h-3 mr-1" /> View
+                      <Link to={`/products/${product.id}`} className="flex-1 min-w-0">
+                        <Button className="btn-secondary w-full min-h-[40px] text-xs">
+                          <Eye className="w-3.5 h-3.5 mr-1" /> View
                         </Button>
                       </Link>
                       <Button
                         variant="ghost"
-                        className="text-[#39FF14] hover:text-[#39FF14] hover:bg-[#39FF14]/10 px-2"
+                        className="text-[#39FF14] hover:text-[#39FF14] hover:bg-[#39FF14]/10 min-w-[44px] min-h-[40px] px-2"
                         onClick={() => handleDuplicate(product)}
                         data-testid={`duplicate-${product.id}`}
                         title="Duplicate / Re-list"
+                        aria-label="Duplicate listing"
                       >
                         <Copy className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="ghost"
-                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2"
+                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10 min-w-[44px] min-h-[40px] px-2"
                         onClick={() => handleDelete(product.id)}
                         data-testid={`delete-${product.id}`}
+                        aria-label="Delete listing"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -454,21 +456,21 @@ export default function MyListings() {
                     {product.is_dead_stock ? (
                       <Button
                         variant="ghost"
-                        className="w-full text-xs py-1 text-[#9CA3AF] hover:text-white hover:bg-white/5 rounded-none border border-white/10"
+                        className="w-full min-h-[40px] text-xs text-[#9CA3AF] hover:text-white hover:bg-white/5 rounded-none border border-white/10"
                         onClick={() => handleRemoveFromDeadStock(product)}
                         data-testid={`restore-${product.id}`}
                       >
-                        <RotateCcw className="w-3 h-3 mr-1" /> Restore to Main Shop
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" /> Restore to Main Shop
                       </Button>
                     ) : (
                       <Button
                         variant="ghost"
-                        className="w-full text-xs py-1 text-[#39FF14] hover:bg-[#39FF14]/10 rounded-none border border-[#39FF14]/30"
+                        className="w-full min-h-[40px] text-xs text-[#39FF14] hover:bg-[#39FF14]/10 rounded-none border border-[#39FF14]/30"
                         onClick={() => openMoveToDeadStock(product)}
                         disabled={quota && quota.remaining <= 0}
                         data-testid={`move-dead-stock-${product.id}`}
                       >
-                        <Tag className="w-3 h-3 mr-1" />
+                        <Tag className="w-3.5 h-3.5 mr-1" />
                         {quota && quota.remaining <= 0 ? 'Dead Stock Full' : 'Move to Dead Stock'}
                       </Button>
                     )}

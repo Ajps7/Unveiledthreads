@@ -183,7 +183,7 @@ export default function ProductDetail() {
   })();
 
   return (
-    <div className="min-h-screen bg-[#050505]">
+    <div className="min-h-screen bg-[#050505] pb-24 lg:pb-0">
       <Header />
       <div className="max-w-7xl mx-auto px-6 md:px-12 py-8">
         <Link to="/products" className="inline-flex items-center gap-2 text-[#9CA3AF] hover:text-white mb-8 transition-colors">
@@ -314,7 +314,7 @@ export default function ProductDetail() {
                     <button
                       key={size}
                       onClick={() => setSelectedSize(size)}
-                      className={`px-4 py-2 border transition-all ${selectedSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                      className={`min-h-[44px] min-w-[52px] px-4 py-2 border transition-all ${selectedSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
                       data-testid={`size-${size}`}
                     >
                       {size}
@@ -332,7 +332,7 @@ export default function ProductDetail() {
                     <button
                       key={size}
                       onClick={() => setSelectedSize(size)}
-                      className={`px-4 py-2 border transition-all ${selectedSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                      className={`min-h-[44px] min-w-[52px] px-4 py-2 border transition-all ${selectedSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
                       data-testid={`unified-size-${size}`}
                     >
                       {size}
@@ -343,7 +343,7 @@ export default function ProductDetail() {
             )}
 
             {isSplitSet && (
-              <div className="mb-8 grid grid-cols-2 gap-4">
+              <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-3">Top size</label>
                   <div className="flex flex-wrap gap-2" data-testid="top-size-row">
@@ -351,7 +351,7 @@ export default function ProductDetail() {
                       <button
                         key={size}
                         onClick={() => setSelectedTopSize(size)}
-                        className={`px-3 py-2 border text-sm transition-all ${selectedTopSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                        className={`min-h-[44px] min-w-[44px] px-3 py-2 border text-sm transition-all ${selectedTopSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
                         data-testid={`top-size-${size}`}
                       >
                         {size}
@@ -366,7 +366,7 @@ export default function ProductDetail() {
                       <button
                         key={size}
                         onClick={() => setSelectedBottomSize(size)}
-                        className={`px-3 py-2 border text-sm transition-all ${selectedBottomSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
+                        className={`min-h-[44px] min-w-[44px] px-3 py-2 border text-sm transition-all ${selectedBottomSize === size ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-white hover:border-white/40'}`}
                         data-testid={`bottom-size-${size}`}
                       >
                         {size}
@@ -497,6 +497,35 @@ export default function ProductDetail() {
 
         {/* Product Comments Section */}
         <ProductComments productId={id} user={user} />
+      </div>
+
+      {/* Sticky mobile Buy bar — hides above `lg`. Keeps the primary CTA in
+          thumb-reach as the buyer scrolls through images, description,
+          reviews, and comments. */}
+      <div
+        className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-[#050505]/95 backdrop-blur-sm border-t border-white/10 px-4 py-3 flex items-center gap-3"
+        data-testid="pdp-mobile-sticky-buy"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-[#9CA3AF]">Total</p>
+          <p className="text-lg font-bold text-white truncate">£{totalPrice.toFixed(2)}</p>
+        </div>
+        <Button
+          className="btn-primary flex-[2] min-h-[48px]"
+          disabled={(!product.is_preorder && product.stock === 0) || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}
+          onClick={handlePurchase}
+          data-testid="pdp-mobile-buy-button"
+        >
+          {purchasing
+            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing</>
+            : product.seller_payments_ready === false
+              ? 'Payments unavailable'
+              : !sizeChoiceComplete
+                ? (isSplitSet ? 'Pick top + bottom' : 'Pick a size')
+                : product.is_preorder
+                  ? <><ShoppingBag className="w-4 h-4 mr-2" /> Pre-order</>
+                  : <><ShoppingBag className="w-4 h-4 mr-2" /> Buy now</>}
+        </Button>
       </div>
     </div>
   );

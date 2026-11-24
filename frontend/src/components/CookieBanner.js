@@ -35,7 +35,7 @@ export default function CookieBanner() {
 
   return (
     <div
-      className="fixed bottom-4 left-4 right-4 md:left-6 md:right-auto md:max-w-md z-[100]"
+      className="fixed bottom-24 md:bottom-4 left-4 right-4 md:left-6 md:right-auto md:max-w-md z-[100]"
       data-testid="cookie-banner"
       role="region"
       aria-label="Cookie notice"

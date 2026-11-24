@@ -56,13 +56,13 @@ export function EditListingDialog({ editProduct, editForm, setEditForm, saving, 
             <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Description</label>
             <Textarea value={editForm.description || ''} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="input-brutalist min-h-[80px] resize-none" />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3">
             <div>
               <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Price (£)</label>
               <Input type="number" step="0.01" value={editForm.price || ''} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} className="input-brutalist" />
             </div>
             <div>
-              <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Shipping (£)</label>
+              <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Ship (£)</label>
               <Input type="number" step="0.01" value={editForm.shipping_cost || ''} onChange={(e) => setEditForm({ ...editForm, shipping_cost: e.target.value })} className="input-brutalist" />
             </div>
             <div>

@@ -663,7 +663,7 @@ function ShipOrderForm({ orderId, onShipped }) {
 
   return (
     <div className="mt-3 p-3 bg-[#0F0F0F] border border-white/10 space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-1">Courier</label>
           <Select value={courier} onValueChange={setCourier}>
