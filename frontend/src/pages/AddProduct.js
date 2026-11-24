@@ -46,6 +46,8 @@ export default function AddProduct() {
     sizing_mode: 'split',       // sensible default for tracksuits
     top_sizes: [],
     bottom_sizes: [],
+    sold_separately: false,
+    component_prices: [],
     // Structured description (all optional)
     story: '',
     details_raw: '',   // newline-separated bullets in the textarea
@@ -160,6 +162,20 @@ export default function AddProduct() {
           payload.bottom_sizes = form.bottom_sizes;
           // Backend requires `sizes` to be a list but it can be empty for split sets.
           payload.sizes = [];
+        }
+        // Component prices — only persisted when sold_separately is ON AND
+        // every component has a positive price, so partial data can never
+        // mislead the PDP savings badge.
+        payload.sold_separately = !!form.sold_separately;
+        if (form.sold_separately) {
+          const cps = (form.component_prices || []).slice(0, form.set_components.length);
+          const complete = cps.length === form.set_components.length
+            && cps.every((cp) => cp && typeof cp.price === 'number' && cp.price > 0);
+          payload.component_prices = complete
+            ? cps.map((cp, i) => ({ label: form.set_components[i].label.trim(), price: cp.price }))
+            : null;
+        } else {
+          payload.component_prices = null;
         }
       }
 

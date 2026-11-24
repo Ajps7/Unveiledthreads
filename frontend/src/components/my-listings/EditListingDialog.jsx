@@ -257,6 +257,63 @@ export function EditListingDialog({ editProduct, editForm, setEditForm, saving, 
               <ImageUpload multiple stageBeforeUpload maxImages={Math.max(1, 10 - (editForm.images || []).length)} label="Choose photos from device" onUpload={(urls) => setEditForm({ ...editForm, images: [...(editForm.images || []), ...urls] })} />
             </div>
           </div>
+          {/* Component prices + bundle-savings toggle (only for sets) */}
+          {editForm.listing_type === 'set' && (
+            <div className="border border-white/10 p-3">
+              <label className="flex items-start gap-3 cursor-pointer" data-testid="edit-sold-separately-label">
+                <input
+                  type="checkbox"
+                  checked={!!editForm.sold_separately}
+                  onChange={(e) => setEditForm({ ...editForm, sold_separately: e.target.checked })}
+                  className="w-5 h-5 accent-[#39FF14] mt-0.5"
+                  data-testid="edit-sold-separately-checkbox"
+                />
+                <span>
+                  <span className="block text-xs font-medium text-white uppercase tracking-wider">Show bundle savings</span>
+                  <span className="block text-[11px] text-[#9CA3AF] font-normal normal-case mt-0.5">
+                    Buyers see how much they save vs. buying the pieces alone.
+                  </span>
+                </span>
+              </label>
+              {editForm.sold_separately && (
+                <div className="mt-3 space-y-2">
+                  {(editForm.set_components || []).map((c, i) => {
+                    const cp = (editForm.component_prices && editForm.component_prices[i]) || {};
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="flex-1 text-xs text-[#C0C0C0]">
+                          {c.label || 'Piece'} <span className="text-[#6B7280]">(if sold alone)</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[#9CA3AF] text-xs">£</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={cp.price != null ? cp.price : ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const next = [...(editForm.component_prices || [])];
+                              while (next.length <= i) next.push({ label: '', price: null });
+                              next[i] = {
+                                label: (c.label || '').trim(),
+                                price: val === '' ? null : parseFloat(val),
+                              };
+                              setEditForm({ ...editForm, component_prices: next });
+                            }}
+                            placeholder="0.00"
+                            className="input-brutalist w-24 text-right"
+                            data-testid={`edit-component-price-${i}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <Button className="btn-primary flex-1" onClick={onSave} disabled={saving} data-testid="save-edit-button">
               {saving ? 'Saving...' : 'Save Changes'}

@@ -151,6 +151,8 @@ export default function MyListings() {
       sizing_mode: product.sizing_mode || 'split',
       top_sizes: product.top_sizes || [],
       bottom_sizes: product.bottom_sizes || [],
+      sold_separately: !!product.sold_separately,
+      component_prices: product.component_prices || [],
     });
   };
 
@@ -201,6 +203,8 @@ export default function MyListings() {
         payload.sizing_mode = null;
         payload.top_sizes = null;
         payload.bottom_sizes = null;
+        payload.sold_separately = false;
+        payload.component_prices = null;
       } else {
         payload.set_components = (editForm.set_components || []).map((c) => ({ label: (c.label || '').trim(), role: c.role }));
         payload.sizing_mode = editForm.sizing_mode;
@@ -212,6 +216,18 @@ export default function MyListings() {
           payload.top_sizes = editForm.top_sizes;
           payload.bottom_sizes = editForm.bottom_sizes;
           payload.sizes = [];
+        }
+        // Mirror AddProduct: only persist component_prices when every piece has a positive price.
+        payload.sold_separately = !!editForm.sold_separately;
+        if (editForm.sold_separately) {
+          const cps = (editForm.component_prices || []).slice(0, (editForm.set_components || []).length);
+          const complete = cps.length === (editForm.set_components || []).length
+            && cps.every((cp) => cp && typeof cp.price === 'number' && cp.price > 0);
+          payload.component_prices = complete
+            ? cps.map((cp, i) => ({ label: (editForm.set_components[i].label || '').trim(), price: cp.price }))
+            : null;
+        } else {
+          payload.component_prices = null;
         }
       }
       await axios.put(`${API}/api/products/${editProduct.id}`, payload, { withCredentials: true });

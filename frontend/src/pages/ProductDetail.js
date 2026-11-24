@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp, Info } from 'lucide-react';
+import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp, Info, Tag } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ProductDescription } from '../components/product/ProductDescription';
@@ -169,6 +169,19 @@ export default function ProductDetail() {
   const creditApplied = Math.min(referralCredit, platformFee);
   const totalPrice = product.price + platformFee - creditApplied + shippingCost;
 
+  // Bundle savings — only when the brand opted in AND filled every component
+  // price AND the sum is higher than the set price. Any miss → no badge.
+  const bundleSavings = (() => {
+    if (!isSet || !product.sold_separately) return null;
+    const comps = product.component_prices || [];
+    if (!comps.length) return null;
+    const total = comps.reduce((s, c) => s + (Number(c?.price) || 0), 0);
+    const diff = +(total - product.price).toFixed(2);
+    if (!(diff > 0)) return null;
+    const pct = Math.round((diff / total) * 100);
+    return { total, diff, pct };
+  })();
+
   return (
     <div className="min-h-screen bg-[#050505]">
       <Header />
@@ -213,6 +226,11 @@ export default function ProductDetail() {
                   </span>
                 </>
               )}
+              {bundleSavings && !product.is_dead_stock && (
+                <span className="ml-3 text-sm text-[#6B7280] line-through font-normal" data-testid="product-component-total">
+                  £{bundleSavings.total.toFixed(2)}
+                </span>
+              )}
             </p>
 
             {/* Price breakdown */}
@@ -250,13 +268,40 @@ export default function ProductDetail() {
 
             <ProductDescription product={product} />
 
-            {/* Set components summary — only for set listings */}
+            {/* Set components summary — only for set listings. When the brand
+                enabled "sold separately" we also show the per-piece prices
+                and the bundle-savings badge, which is the whole point of
+                letting them set those prices. */}
             {isSet && product.set_components?.length > 0 && (
               <div className="mb-6 border border-[#39FF14]/30 bg-[#39FF14]/5 p-4" data-testid="set-components-summary">
-                <p className="text-[11px] uppercase tracking-wider text-[#39FF14] mb-1">Set includes</p>
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <p className="text-[11px] uppercase tracking-wider text-[#39FF14]">Set includes</p>
+                  {bundleSavings && (
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 bg-[#39FF14] text-black font-bold" data-testid="bundle-savings-badge">
+                      <Tag className="w-3 h-3" /> Save £{bundleSavings.diff.toFixed(2)} ({bundleSavings.pct}%)
+                    </span>
+                  )}
+                </div>
                 <p className="text-white text-sm font-medium">
                   {product.set_components.map((c) => c.label).join(' + ')}
                 </p>
+
+                {product.sold_separately && (product.component_prices?.length > 0) && (
+                  <div className="mt-3 pt-3 border-t border-[#39FF14]/20 space-y-1" data-testid="component-prices-list">
+                    {product.component_prices.map((cp, i) => (
+                      <div key={i} className="flex items-center justify-between text-[12px]">
+                        <span className="text-[#C0C0C0]">{cp.label || `Piece ${i + 1}`} <span className="text-[#6B7280]">if bought alone</span></span>
+                        <span className="text-white">£{Number(cp.price).toFixed(2)}</span>
+                      </div>
+                    ))}
+                    {bundleSavings && (
+                      <div className="flex items-center justify-between text-[12px] pt-1 border-t border-[#39FF14]/10">
+                        <span className="text-[#39FF14] font-medium">Buy the set</span>
+                        <span className="text-[#39FF14] font-bold">£{product.price.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

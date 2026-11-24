@@ -1,4 +1,4 @@
-import { Plus, X, Info } from 'lucide-react';
+import { Plus, X, Info, Tag } from 'lucide-react';
 
 const ALL_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'One Size'];
 const ROLES = [
@@ -241,6 +241,100 @@ export function SetBuilder({ form, setForm }) {
           </div>
         </div>
       )}
+
+      {/* ---- Prices if sold separately (optional, highlights bundle savings) ---- */}
+      <div className="mt-6 border-t border-white/10 pt-5">
+        <label className="flex items-start gap-3 cursor-pointer" data-testid="sold-separately-toggle-label">
+          <input
+            type="checkbox"
+            checked={!!form.sold_separately}
+            onChange={(e) => setForm((prev) => ({ ...prev, sold_separately: e.target.checked }))}
+            className="w-5 h-5 accent-[#39FF14] mt-0.5"
+            data-testid="sold-separately-checkbox"
+          />
+          <span>
+            <span className="block text-sm font-medium text-white uppercase tracking-wider">
+              Show bundle savings
+            </span>
+            <span className="block text-[11px] text-[#9CA3AF] font-normal normal-case mt-0.5">
+              Enter what each piece would cost on its own and we&rsquo;ll highlight how much buyers save on the set.
+            </span>
+          </span>
+        </label>
+
+        {form.sold_separately && (
+          <div className="mt-4 space-y-2" data-testid="component-prices-block">
+            {(form.set_components || []).map((c, i) => {
+              const cp = (form.component_prices && form.component_prices[i]) || {};
+              return (
+                <div key={i} className="flex items-center gap-3" data-testid={`component-price-row-${i}`}>
+                  <div className="flex-1 text-xs text-[#C0C0C0]">
+                    {c.label || 'Piece'} <span className="text-[#6B7280]">(if sold alone)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[#9CA3AF] text-xs">£</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={cp.price != null ? cp.price : ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const next = [...(form.component_prices || [])];
+                        // Keep array aligned with set_components; fill holes so i===index.
+                        while (next.length <= i) next.push({ label: '', price: null });
+                        next[i] = {
+                          label: (c.label || '').trim(),
+                          price: val === '' ? null : parseFloat(val),
+                        };
+                        setForm((prev) => ({ ...prev, component_prices: next }));
+                      }}
+                      placeholder="0.00"
+                      className="input-brutalist w-24 text-right"
+                      data-testid={`component-price-${i}`}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            {/* Live preview of savings so the brand sees what the buyer will see. */}
+            <BundleSavingsHint form={form} />
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+/**
+ * Tiny preview helper — mirrors the PDP calculation so the brand can tell
+ * whether their component prices actually make the set look like a deal
+ * BEFORE they publish.
+ */
+function BundleSavingsHint({ form }) {
+  const setPrice = parseFloat(form.price || 0);
+  const prices = (form.component_prices || []).map((cp) => (cp && typeof cp.price === 'number' ? cp.price : null));
+  const allSet = prices.length === (form.set_components || []).length && prices.every((p) => p != null && p > 0);
+  if (!allSet || !setPrice) {
+    return (
+      <p className="text-[11px] text-[#6B7280] mt-2 flex items-center gap-1">
+        <Info className="w-3 h-3" /> Enter the set price (below) and every component price above to preview the savings.
+      </p>
+    );
+  }
+  const componentTotal = prices.reduce((s, p) => s + p, 0);
+  const diff = +(componentTotal - setPrice).toFixed(2);
+  if (diff <= 0) {
+    return (
+      <p className="text-[11px] text-[#9CA3AF] mt-2 flex items-center gap-1">
+        <Info className="w-3 h-3" /> Your set costs the same or more than the sum of the pieces — no savings badge will show.
+      </p>
+    );
+  }
+  const pct = Math.round((diff / componentTotal) * 100);
+  return (
+    <p className="text-[11px] text-[#39FF14] mt-2 flex items-center gap-1" data-testid="savings-preview">
+      <Tag className="w-3 h-3" /> Buyers will see: <strong>Save £{diff.toFixed(2)} ({pct}%) buying the set</strong>
+    </p>
   );
 }
