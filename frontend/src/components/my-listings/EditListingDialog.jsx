@@ -79,6 +79,84 @@ export function EditListingDialog({ editProduct, editForm, setEditForm, saving, 
               </SelectContent>
             </Select>
           </div>
+
+          {/* Fulfilment — toggles between in-stock and pre-order. Flipping back
+              to in-stock clears the pre-order fields after a confirm so brands
+              don't accidentally lose a hard-won ship date. */}
+          <div className="border border-white/10 p-3" data-testid="edit-fulfilment-block">
+            <label className="block text-xs text-[#C0C0C0] uppercase tracking-wider mb-2">Fulfilment</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                data-testid="edit-fulfilment-in-stock"
+                onClick={() => {
+                  if (!editForm.is_preorder) return;
+                  const ok = window.confirm("Switch this listing back to In stock? We'll clear the ships-by date, limit and note.");
+                  if (!ok) return;
+                  setEditForm({
+                    ...editForm,
+                    is_preorder: false,
+                    preorder_ship_date: '',
+                    preorder_limit: '',
+                    preorder_note: '',
+                  });
+                }}
+                className={`px-3 py-2 border text-xs ${!editForm.is_preorder ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-[#9CA3AF]'}`}
+              >In stock</button>
+              <button
+                type="button"
+                data-testid="edit-fulfilment-pre-order"
+                onClick={() => setEditForm({ ...editForm, is_preorder: true })}
+                className={`px-3 py-2 border text-xs ${editForm.is_preorder ? 'border-[#39FF14] bg-[#39FF14]/10 text-[#39FF14]' : 'border-white/20 text-[#9CA3AF]'}`}
+              >Pre-order</button>
+            </div>
+
+            {editForm.is_preorder && (
+              <div className="mt-3 space-y-3" data-testid="edit-preorder-fields">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] text-[#C0C0C0] uppercase tracking-wider mb-1">Ships by <span className="text-red-400">*</span></label>
+                    <Input
+                      type="date"
+                      value={editForm.preorder_ship_date || ''}
+                      onChange={(e) => setEditForm({ ...editForm, preorder_ship_date: e.target.value })}
+                      className="input-brutalist"
+                      data-testid="edit-preorder-ship-date"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-[#C0C0C0] uppercase tracking-wider mb-1">Limit <span className="text-[#6B7280]">(blank = unlimited)</span></label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={editForm.preorder_limit || ''}
+                      onChange={(e) => setEditForm({ ...editForm, preorder_limit: e.target.value })}
+                      placeholder="unlimited"
+                      className="input-brutalist"
+                      data-testid="edit-preorder-limit"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-[#C0C0C0] uppercase tracking-wider mb-1">Note <span className="text-[#6B7280]">(optional, shown on the product page)</span></label>
+                  <Input
+                    type="text"
+                    maxLength={200}
+                    value={editForm.preorder_note || ''}
+                    onChange={(e) => setEditForm({ ...editForm, preorder_note: e.target.value })}
+                    placeholder="Hand-made to order, ships in batches"
+                    className="input-brutalist"
+                    data-testid="edit-preorder-note"
+                  />
+                </div>
+                <p className="text-[11px] text-[#9CA3AF]">
+                  Buyers are charged in full at checkout, exactly like a normal order.
+                  You commit to dispatching by the date above.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Listing type convert — safe round-trip (shared fields preserved) */}
           <div className="border border-white/10 p-3">
             <div className="flex items-center justify-between gap-3">

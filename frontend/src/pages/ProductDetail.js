@@ -182,6 +182,9 @@ export default function ProductDetail() {
     return { total, diff, pct };
   })();
 
+  // Pre-order availability — true when the brand set a cap AND every slot is taken.
+  const preorderFull = product.is_preorder && product.preorder_remaining === 0;
+
   return (
     <div className="min-h-screen bg-[#050505] pb-24 lg:pb-0">
       <Header />
@@ -400,6 +403,22 @@ export default function ProductDetail() {
                   ship your item by {product.preorder_ship_date}. If it isn&apos;t shipped by then,
                   you&apos;re covered by Buyer Protection and can request a full refund.
                 </span>
+                {product.preorder_note && (
+                  <p className="mt-2 pt-2 border-t border-[#39FF14]/20 text-white/90" data-testid="preorder-note">
+                    <span className="uppercase tracking-wider text-[10px] text-[#39FF14] block mb-0.5">From the brand</span>
+                    {product.preorder_note}
+                  </p>
+                )}
+                {typeof product.preorder_remaining === 'number' && product.preorder_remaining <= 5 && product.preorder_remaining > 0 && (
+                  <p className="mt-2 pt-2 border-t border-[#39FF14]/20 text-white font-medium" data-testid="preorder-remaining">
+                    Only {product.preorder_remaining} pre-order slot{product.preorder_remaining === 1 ? '' : 's'} left
+                  </p>
+                )}
+                {product.preorder_remaining === 0 && (
+                  <p className="mt-2 pt-2 border-t border-red-400/40 text-red-400 font-medium" data-testid="preorder-full">
+                    Pre-order full — no more slots available.
+                  </p>
+                )}
               </div>
             )}
 
@@ -412,7 +431,7 @@ export default function ProductDetail() {
             <div className="flex gap-4 mb-4">
               <Button
                 className="btn-primary flex-1"
-                disabled={(!product.is_preorder && product.stock === 0) || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}
+                disabled={(!product.is_preorder && product.stock === 0) || preorderFull || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}
                 onClick={handlePurchase}
                 data-testid="buy-now-button"
               >
@@ -420,9 +439,11 @@ export default function ProductDetail() {
                   ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
                   : product.seller_payments_ready === false
                     ? <><ShoppingBag className="w-5 h-5 mr-2" /> Payments unavailable</>
-                    : product.is_preorder
-                      ? <><ShoppingBag className="w-5 h-5 mr-2" /> PRE-ORDER — £{totalPrice.toFixed(2)}</>
-                      : <><ShoppingBag className="w-5 h-5 mr-2" /> BUY NOW — £{totalPrice.toFixed(2)}</>}
+                    : preorderFull
+                      ? <><ShoppingBag className="w-5 h-5 mr-2" /> Pre-order full</>
+                      : product.is_preorder
+                        ? <><ShoppingBag className="w-5 h-5 mr-2" /> PRE-ORDER — £{totalPrice.toFixed(2)}</>
+                        : <><ShoppingBag className="w-5 h-5 mr-2" /> BUY NOW — £{totalPrice.toFixed(2)}</>}
               </Button>
             </div>
             {product.brand && user && (
@@ -512,7 +533,7 @@ export default function ProductDetail() {
         </div>
         <Button
           className="btn-primary flex-[2] min-h-[48px]"
-          disabled={(!product.is_preorder && product.stock === 0) || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}
+          disabled={(!product.is_preorder && product.stock === 0) || preorderFull || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}
           onClick={handlePurchase}
           data-testid="pdp-mobile-buy-button"
         >
@@ -520,11 +541,13 @@ export default function ProductDetail() {
             ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing</>
             : product.seller_payments_ready === false
               ? 'Payments unavailable'
-              : !sizeChoiceComplete
-                ? (isSplitSet ? 'Pick top + bottom' : 'Pick a size')
-                : product.is_preorder
-                  ? <><ShoppingBag className="w-4 h-4 mr-2" /> Pre-order</>
-                  : <><ShoppingBag className="w-4 h-4 mr-2" /> Buy now</>}
+              : preorderFull
+                ? 'Pre-order full'
+                : !sizeChoiceComplete
+                  ? (isSplitSet ? 'Pick top + bottom' : 'Pick a size')
+                  : product.is_preorder
+                    ? <><ShoppingBag className="w-4 h-4 mr-2" /> Pre-order</>
+                    : <><ShoppingBag className="w-4 h-4 mr-2" /> Buy now</>}
         </Button>
       </div>
     </div>

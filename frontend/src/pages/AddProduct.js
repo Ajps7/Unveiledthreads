@@ -37,6 +37,7 @@ export default function AddProduct() {
     is_preorder: false,
     preorder_ship_date: '',
     preorder_limit: '',
+    preorder_note: '',
     // ---- Full-set / tracksuit shape (default = single) ----
     listing_type: 'single',
     set_components: [
@@ -147,6 +148,7 @@ export default function AddProduct() {
         is_preorder: form.is_preorder,
         preorder_ship_date: form.is_preorder && form.preorder_ship_date ? form.preorder_ship_date : null,
         preorder_limit: form.is_preorder && form.preorder_limit ? parseInt(form.preorder_limit) : null,
+        preorder_note: form.is_preorder && form.preorder_note?.trim() ? form.preorder_note.trim() : null,
         listing_type: form.listing_type,
       };
 
@@ -387,6 +389,20 @@ export default function AddProduct() {
                   <p className="text-xs text-[#9CA3AF] mt-1">
                     Cap the total pre-orders you&apos;ll accept for this run.
                   </p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
+                    Note (optional, shown on the product page)
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={form.preorder_note || ''}
+                    onChange={(e) => setForm({ ...form, preorder_note: e.target.value })}
+                    className="input-brutalist w-full"
+                    placeholder="e.g. Hand-made to order, ships in batches"
+                    data-testid="preorder-note-input"
+                  />
                 </div>
               </div>
             )}

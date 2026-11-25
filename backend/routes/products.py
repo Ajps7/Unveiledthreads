@@ -55,6 +55,7 @@ async def create_product(product: ProductCreate, request: Request):
         "is_preorder": product.is_preorder,
         "preorder_ship_date": product.preorder_ship_date.isoformat() if product.preorder_ship_date else None,
         "preorder_limit": product.preorder_limit,
+        "preorder_note": product.preorder_note,
         # ---- Full-set / tracksuit shape (default 'single' for backwards compat) ----
         "listing_type": product.listing_type,
         "set_components": [c.model_dump() for c in product.set_components] if product.set_components else None,
@@ -239,7 +240,20 @@ async def get_product(product_id: str, request: Request):
         product["seller_payments_ready"] = bool(brand.get("stripe_charges_enabled"))
     else:
         product["seller_payments_ready"] = False
-    
+
+    # Pre-order remaining capacity: null when no cap is set (unlimited / made-to-order),
+    # otherwise the number of slots still open. Counts any order against this product
+    # that already settled through Stripe (`paid`) OR is mid-flight (`initiated`) so a
+    # buyer can't sneak past the cap by holding the Checkout page open.
+    if product.get("is_preorder") and product.get("preorder_limit") is not None:
+        reserved = await db.orders.count_documents({
+            "product_id": product["id"],
+            "status": {"$in": ["paid", "initiated"]},
+        })
+        product["preorder_remaining"] = max(0, int(product["preorder_limit"]) - int(reserved))
+    else:
+        product["preorder_remaining"] = None
+
     return product
 
 @api_router.put("/products/{product_id}")

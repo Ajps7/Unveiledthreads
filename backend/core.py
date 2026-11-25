@@ -357,6 +357,7 @@ class ProductCreate(BaseModel):
     is_preorder: bool = False
     preorder_ship_date: Optional[date] = None  # noqa: F821  (date imported below)
     preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
+    preorder_note: Optional[str] = Field(default=None, max_length=200)
     # ---- Full-set / tracksuit fields (added 2026-11) ----
     # Default is 'single' so every existing caller keeps the single-item shape
     # for free. Set listings use the extra fields below.
@@ -464,6 +465,7 @@ class ProductUpdate(BaseModel):
     is_preorder: Optional[bool] = None
     preorder_ship_date: Optional[date] = None  # noqa: F821
     preorder_limit: Optional[int] = Field(default=None, ge=1, le=100000)
+    preorder_note: Optional[str] = Field(default=None, max_length=200)
     # ---- Set listing fields ----
     listing_type: Optional[str] = None  # 'single' | 'set'
     set_components: Optional[List[SetComponent]] = None

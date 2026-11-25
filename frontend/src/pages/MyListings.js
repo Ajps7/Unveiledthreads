@@ -153,6 +153,11 @@ export default function MyListings() {
       bottom_sizes: product.bottom_sizes || [],
       sold_separately: !!product.sold_separately,
       component_prices: product.component_prices || [],
+      // ---- Pre-order fields ----
+      is_preorder: !!product.is_preorder,
+      preorder_ship_date: product.preorder_ship_date || '',
+      preorder_limit: product.preorder_limit != null ? String(product.preorder_limit) : '',
+      preorder_note: product.preorder_note || '',
     });
   };
 
@@ -186,6 +191,17 @@ export default function MyListings() {
     setSaving(true);
     try {
       const isSet = editForm.listing_type === 'set';
+      // Validate pre-order toggle BEFORE building the payload so we surface a
+      // single friendly error (instead of a backend 422 for a past ship date).
+      if (editForm.is_preorder) {
+        if (!editForm.preorder_ship_date) {
+          alert('Pick a ships-by date for the pre-order'); setSaving(false); return;
+        }
+        const shipDate = new Date(editForm.preorder_ship_date);
+        if (isNaN(shipDate.getTime()) || shipDate <= new Date()) {
+          alert('Ships-by date must be in the future'); setSaving(false); return;
+        }
+      }
       const payload = {
         name: editForm.name,
         description: editForm.description,
@@ -195,6 +211,13 @@ export default function MyListings() {
         stock: parseInt(editForm.stock),
         images: editForm.images,
         listing_type: editForm.listing_type,
+        // ---- Pre-order persistence ----
+        // When toggling OFF, send null-for-every-pre-order-field so a round trip
+        // in → out → in doesn't accidentally resurrect stale ship dates.
+        is_preorder: !!editForm.is_preorder,
+        preorder_ship_date: editForm.is_preorder && editForm.preorder_ship_date ? editForm.preorder_ship_date : null,
+        preorder_limit: editForm.is_preorder && editForm.preorder_limit ? parseInt(editForm.preorder_limit) : null,
+        preorder_note: editForm.is_preorder && editForm.preorder_note?.trim() ? editForm.preorder_note.trim() : null,
       };
       if (!isSet) {
         payload.sizes = editForm.sizes;

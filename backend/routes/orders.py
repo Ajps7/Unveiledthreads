@@ -718,12 +718,18 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
             {"$inc": {"credits_used": credit_applied}}
         )
     
+    # Pre-order orders carry a commitment date — include it in the brand
+    # notification so the seller knows the dispatch window at a glance.
+    preorder_tail = ""
+    if order.get("is_preorder") and order.get("preorder_ship_date"):
+        preorder_tail = f" PRE-ORDER — ship by {order['preorder_ship_date']}."
+
     await create_notification(
         user_id=None,
         brand_id=order["brand_id"],
         notification_type="order_received",
         title="New Order Received!",
-        message=f"New order for {order['product_name']} (Size: {order['size']}) from {order['buyer_name']}. Payout: £{order['brand_payout']:.2f}",
+        message=f"New order for {order['product_name']} (Size: {order['size']}) from {order['buyer_name']}. Payout: £{order['brand_payout']:.2f}.{preorder_tail}",
         metadata={"order_session_id": order["session_id"]}
     )
     
