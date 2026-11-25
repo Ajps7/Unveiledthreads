@@ -89,6 +89,20 @@ async def connect_onboard(payload: ConnectOnboardRequest, request: Request):
                     "can onboard. Please contact support."
                 ),
             )
+        # Cross-border / EEA restrictions — Stripe says you can't create an
+        # account in that country from this platform. Give the brand a
+        # friendly message and log the full Stripe error for the admin.
+        if ("country" in msg.lower() and ("not supported" in msg.lower() or "not available" in msg.lower())) \
+           or "cross-border" in msg.lower():
+            logger.warning(f"Stripe refused country for brand={brand['_id']} country={stripe_country}: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"We can't currently onboard brands based in {stripe_country}. "
+                    f"We're working on it — contact support@unveiledthreads.co.uk and we'll let "
+                    f"you know when it opens up."
+                ),
+            )
         logger.error(f"Stripe Connect onboard failed: {e}")
         raise HTTPException(status_code=500, detail=f"Stripe Connect error: {msg}")
     except Exception as e:
@@ -111,6 +125,7 @@ async def connect_status(request: Request):
             "payouts_enabled": False,
             "details_submitted": False,
             "requirements_due": [],
+            "stripe_country": (brand.get("stripe_country") or "GB").upper(),
         }
     
     api_key = os.environ.get("STRIPE_API_KEY")
@@ -141,6 +156,8 @@ async def connect_status(request: Request):
         "payouts_enabled": payouts_enabled,
         "details_submitted": details_submitted,
         "requirements_due": requirements_due,
+        "stripe_country": (brand.get("stripe_country") or "GB").upper(),
+        "account_country": (getattr(account, "country", None) or "").upper() or None,
     }
 
 @api_router.get("/connect/dashboard-link")
@@ -182,38 +199,146 @@ async def connect_payouts(request: Request):
         logger.error(f"Stripe payouts fetch failed: {e}")
         return {"connected": False, "error": "Could not reach Stripe"}
     
-    def _sum_gbp(entries):
-        return round(sum(e["amount"] for e in entries if e["currency"] == "gbp") / 100, 2)
-    
+    # Balance can hold entries in multiple currencies (an EEA brand might
+    # accumulate both EUR and the odd GBP transfer during cross-border edge
+    # cases). We report the account's DEFAULT currency as the headline
+    # figure but surface a per-currency breakdown too so the dashboard can
+    # show any non-headline balances honestly.
+    def _sum_for_currency(entries, currency):
+        return round(sum(e["amount"] for e in entries if e["currency"] == currency) / 100, 2)
+
+    def _per_currency(entries):
+        totals = {}
+        for e in entries:
+            totals.setdefault(e["currency"], 0)
+            totals[e["currency"]] += e["amount"]
+        return {c: round(v / 100, 2) for c, v in totals.items()}
+
     def _iso(ts):
         return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-    
+
+    account_currency = (account.get("default_currency") or "gbp").lower()
     schedule = ((account.get("settings") or {}).get("payouts") or {}).get("schedule") or {}
     next_payout = None
     last_payout = None
     history = []
     for p in payouts.get("data", []):
         if next_payout is None and p["status"] in ("pending", "in_transit"):
-            next_payout = {"amount": round(p["amount"] / 100, 2), "arrival_date": _iso(p["arrival_date"]), "status": p["status"]}
+            next_payout = {"amount": round(p["amount"] / 100, 2), "currency": p["currency"], "arrival_date": _iso(p["arrival_date"]), "status": p["status"]}
         if last_payout is None and p["status"] == "paid":
-            last_payout = {"amount": round(p["amount"] / 100, 2), "arrival_date": _iso(p["arrival_date"])}
+            last_payout = {"amount": round(p["amount"] / 100, 2), "currency": p["currency"], "arrival_date": _iso(p["arrival_date"])}
         history.append({
             "amount": round(p["amount"] / 100, 2),
             "currency": p["currency"],
             "arrival_date": _iso(p["arrival_date"]),
             "status": p["status"],
         })
-    
+
     return {
         "connected": True,
         "payouts_enabled": bool(account.get("payouts_enabled")),
-        "available": _sum_gbp(balance["available"]),
-        "pending": _sum_gbp(balance["pending"]),
-        "currency": "gbp",
+        "available": _sum_for_currency(balance["available"], account_currency),
+        "pending": _sum_for_currency(balance["pending"], account_currency),
+        "currency": account_currency,
+        "available_by_currency": _per_currency(balance["available"]),
+        "pending_by_currency": _per_currency(balance["pending"]),
         "schedule_interval": schedule.get("interval"),
         "schedule_delay_days": schedule.get("delay_days"),
         "next_payout": next_payout,
         "last_payout": last_payout,
         "history": history,
     }
+
+
+
+class ConnectResetRequest(BaseModel):
+    stripe_country: str
+
+
+async def _reset_brand_stripe_account(brand: dict, new_country: str, *, actor_label: str):
+    """Delete an INCOMPLETE Stripe connected account and reset the brand so
+    they can start onboarding fresh in the correct country.
+
+    Safety rails (any failed check aborts the delete):
+      - The brand must have no onboarded Stripe account, OR
+      - the connected account must have `details_submitted = false` AND
+        `charges_enabled = false` (never delete a live, earning account).
+      - The new country must be in STRIPE_SUPPORTED_COUNTRIES.
+    """
+    new_country = (new_country or "").strip().upper()
+    if new_country not in STRIPE_SUPPORTED_COUNTRIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"We don't support Stripe onboarding in '{new_country}' yet.",
+        )
+
+    account_id = brand.get("stripe_account_id")
+    if account_id:
+        stripe_sdk.api_key = os.environ.get("STRIPE_API_KEY")
+        try:
+            account = await asyncio.to_thread(stripe_sdk.Account.retrieve, account_id)
+        except Exception as e:
+            logger.warning(f"[CONNECT RESET] Could not fetch {account_id}: {e}. Clearing brand's reference anyway.")
+            account = None
+        if account:
+            if account.get("details_submitted") or account.get("charges_enabled"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "This Stripe account has already completed onboarding or is active. "
+                        "We can't reset it — contact support if the country is wrong."
+                    ),
+                )
+            try:
+                await asyncio.to_thread(stripe_sdk.Account.delete, account_id)
+                logger.info(f"[CONNECT RESET] by={actor_label} brand={brand['_id']} deleted {account_id}, new country={new_country}")
+            except Exception as e:
+                logger.error(f"[CONNECT RESET] Stripe delete failed for {account_id}: {e}")
+                raise HTTPException(status_code=500, detail="Stripe couldn't delete the old account — try again shortly.")
+
+    # Scrub the brand's Stripe state AND update stripe_country so the next
+    # `/connect/onboard` call creates a fresh account in the right place.
+    await db.brands.update_one(
+        {"_id": brand["_id"]},
+        {"$set": {
+            "stripe_account_id": None,
+            "stripe_charges_enabled": False,
+            "stripe_payouts_enabled": False,
+            "stripe_onboarded_at": None,
+            "stripe_country": new_country,
+        }},
+    )
+    return {"ok": True, "stripe_country": new_country}
+
+
+@api_router.post("/connect/reset-account")
+@limiter.limit("5/hour")
+async def connect_reset_account(payload: ConnectResetRequest, request: Request):
+    """Brand self-service: wipe an INCOMPLETE Stripe connected account and
+    change the brand's registered country so they can onboard fresh.
+    Rate-limited aggressively because it hits the Stripe API.
+    """
+    user = await require_brand(request)
+    brand = await db.brands.find_one({"user_id": user["id"]})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand profile not found")
+    return await _reset_brand_stripe_account(
+        brand, payload.stripe_country, actor_label=f"brand-self:{user['id']}",
+    )
+
+
+@api_router.post("/admin/brands/{brand_id}/reset-stripe")
+async def admin_reset_brand_stripe(brand_id: str, payload: ConnectResetRequest, request: Request):
+    """Admin version of `/connect/reset-account` — fixes a brand stuck on
+    the wrong country without needing the brand to trigger it themselves.
+    Same safety rails apply (won't delete a live / onboarded account).
+    """
+    await require_admin(request)
+    brand = await db.brands.find_one({"_id": safe_object_id(brand_id)})
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    actor = await get_current_user(request)
+    return await _reset_brand_stripe_account(
+        brand, payload.stripe_country, actor_label=f"admin:{actor['id']}",
+    )
 

@@ -1,11 +1,40 @@
 import { Banknote } from 'lucide-react';
 
+/** Map Stripe currency codes to the symbol most brands expect to see.
+ * Falls back to the uppercase ISO code for anything exotic (CHF, NOK, PLN…).
+ */
+const CURRENCY_SYMBOLS = {
+  gbp: '£',
+  eur: '€',
+  usd: '$',
+  cad: 'C$',
+  aud: 'A$',
+  nzd: 'NZ$',
+  jpy: '¥',
+  chf: 'CHF ',
+  sek: 'kr ',
+  dkk: 'kr ',
+  nok: 'kr ',
+};
+
+const fmt = (amount, currency = 'gbp') => {
+  const c = (currency || 'gbp').toLowerCase();
+  const sym = CURRENCY_SYMBOLS[c] || `${c.toUpperCase()} `;
+  // JPY is a zero-decimal currency in Stripe; everything else is two.
+  const dp = c === 'jpy' ? 0 : 2;
+  return `${sym}${Number(amount || 0).toFixed(dp)}`;
+};
+
 /**
  * Stripe payouts widget (available / pending / next payout + last + history).
  * Renders nothing when `payouts` is null/disconnected.
+ *
+ * All amounts are formatted in the connected account's own currency so an
+ * IE brand sees € and a GB brand sees £ — never a mismatched symbol.
  */
 export function PayoutsWidget({ payouts }) {
   if (!payouts?.connected) return null;
+  const accountCurrency = payouts.currency || 'gbp';
 
   return (
     <div className="mb-12 border border-white/10 bg-[#0A0A0A] p-6" data-testid="payouts-widget">
@@ -19,14 +48,14 @@ export function PayoutsWidget({ payouts }) {
             <div className="border border-white/5 bg-[#0F0F0F] p-4">
               <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Available now</p>
               <p className="text-2xl font-bold text-[#39FF14]" data-testid="payouts-available">
-                £{payouts.available.toFixed(2)}
+                {fmt(payouts.available, accountCurrency)}
               </p>
               <p className="text-[10px] text-[#9CA3AF] mt-1">Ready to pay out to your bank</p>
             </div>
             <div className="border border-white/5 bg-[#0F0F0F] p-4">
               <p className="text-xs uppercase tracking-wider text-[#9CA3AF] mb-1">Pending</p>
               <p className="text-2xl font-bold text-white" data-testid="payouts-pending">
-                £{payouts.pending.toFixed(2)}
+                {fmt(payouts.pending, accountCurrency)}
               </p>
               <p className="text-[10px] text-[#9CA3AF] mt-1">Recent sales still settling with Stripe</p>
             </div>
@@ -35,7 +64,7 @@ export function PayoutsWidget({ payouts }) {
               {payouts.next_payout ? (
                 <>
                   <p className="text-2xl font-bold text-white" data-testid="payouts-next">
-                    £{payouts.next_payout.amount.toFixed(2)}
+                    {fmt(payouts.next_payout.amount, payouts.next_payout.currency || accountCurrency)}
                   </p>
                   <p className="text-[10px] text-[#9CA3AF] mt-1">
                     Arrives{' '}
@@ -59,7 +88,7 @@ export function PayoutsWidget({ payouts }) {
           </div>
           {payouts.last_payout && (
             <p className="text-xs text-[#9CA3AF] mt-4" data-testid="payouts-last">
-              Last payout: £{payouts.last_payout.amount.toFixed(2)} on{' '}
+              Last payout: {fmt(payouts.last_payout.amount, payouts.last_payout.currency || accountCurrency)} on{' '}
               {new Date(payouts.last_payout.arrival_date).toLocaleDateString('en-GB', {
                 day: 'numeric',
                 month: 'short',
@@ -95,7 +124,7 @@ export function PayoutsWidget({ payouts }) {
                     >
                       {p.status.replace('_', ' ')}
                     </span>
-                    <span className="text-white font-bold">£{p.amount.toFixed(2)}</span>
+                    <span className="text-white font-bold">{fmt(p.amount, p.currency || accountCurrency)}</span>
                   </div>
                 ))}
               </div>

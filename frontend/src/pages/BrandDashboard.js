@@ -539,6 +539,7 @@ export default function BrandDashboard() {
           connectLoading={connectLoading}
           onConnect={handleConnectStripe}
           onOpenDashboard={handleOpenStripeDashboard}
+          onReset={fetchConnectStatus}
         />
 
         <PayoutsWidget payouts={payouts} />
