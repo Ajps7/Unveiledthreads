@@ -163,7 +163,7 @@ export default function BuyerProtection() {
         {/* Limits */}
         <SectionHeading>7. Honest limits</SectionHeading>
         <P>
-          Unveiled Threads is in MVP. Buyer Protection is currently a manual review by our team, not an automated
+          Buyer Protection is currently a manual review by our team, not an automated
           process. Decisions are made in good faith using the data on each order. If you disagree with a decision,
           email <a href="mailto:support@unveiledthreads.co.uk" className="text-[#39FF14] hover:underline">support@unveiledthreads.co.uk</a> within
           14 days and we&apos;ll have a different team member take a second look.

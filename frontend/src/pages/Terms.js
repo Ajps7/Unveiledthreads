@@ -64,19 +64,6 @@ export default function Terms() {
           Governed by the Laws of England &amp; Wales
         </p>
 
-        {/* MVP / Demo disclosure — prominent so initial audience is informed */}
-        <div className="mb-8 border border-yellow-500/30 bg-yellow-500/5 p-4" data-testid="terms-mvp-notice">
-          <p className="text-xs uppercase tracking-[0.2em] text-yellow-400 mb-2 font-bold">MVP / Demo notice</p>
-          <p className="text-[#C0C0C0] leading-relaxed text-sm">
-            Unveiled Threads is currently operating in an early <strong className="text-white">MVP (Minimum Viable Product) / demo</strong> state.
-            While the platform is fully functional — including payments, brand onboarding and order fulfilment — some features may be incomplete,
-            change without notice, or be temporarily unavailable while we polish them based on early feedback. We are working closely with our
-            first cohort of brands and buyers to build something genuinely useful for the UK independent streetwear scene. By using the Platform
-            during this phase, you acknowledge that the experience may evolve quickly and that we reserve the right to refine features, pricing,
-            and processes as we learn what works best for our community.
-          </p>
-        </div>
-
         <Callout tone="warning" title="Important — please read carefully">
           These Terms &amp; Conditions constitute a legally binding agreement between you and Unveiled Threads Ltd.
           By accessing or using the Platform, you unconditionally accept these terms in their entirety.

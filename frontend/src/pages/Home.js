@@ -8,6 +8,7 @@ import { Input } from '../components/ui/input';
 import Header from '../components/Header';
 import ProductCard from '../components/ProductCard';
 import BrandCard from '../components/BrandCard';
+import { FoundingSpotsCounter } from '../components/FoundingSpots';
 import { useAuth } from '../context/AuthContext';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -79,18 +80,6 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#050505]">
       <Header />
-
-      {/* MVP / Demo notice — subtle, dismissable */}
-      <div className="bg-[#0A0A0A] border-b border-white/10" data-testid="demo-notice-banner">
-        <div className="max-w-7xl mx-auto px-6 md:px-12 py-2 text-center">
-          <p className="text-[11px] text-[#9CA3AF] tracking-wide">
-            Heads up: Unveiled Threads is currently in <span className="text-[#C0C0C0]">MVP/demo</span>. Some features are still being refined.{' '}
-            <Link to="/terms" className="text-[#9CA3AF] underline hover:text-[#39FF14] transition-colors">
-              Learn more
-            </Link>
-          </p>
-        </div>
-      </div>
 
       {/* Brand of the Week - FIRST for logged-in users */}
       {user && brandOfWeek && (
@@ -279,20 +268,25 @@ export default function Home() {
       {boostedBrands.length > 0 && (
         <section className="py-24 px-6 md:px-12 border-b border-white/10 bg-[#0A0A0A]">
           <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-12">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <Zap className="w-6 h-6 text-[#39FF14]" />
                 <h2 
                   className="text-2xl md:text-3xl font-bold tracking-tight uppercase text-white"
                   style={{ fontFamily: 'Clash Display, sans-serif' }}
                 >
-                  Boosted Brands
+                  The Founding 20
                 </h2>
               </div>
               <Link to="/brands" className="text-[#39FF14] text-sm uppercase tracking-wider hover:underline" data-testid="view-all-brands-link">
                 View All →
               </Link>
             </div>
+            <p className="text-[#9CA3AF] text-sm md:text-base max-w-2xl mb-6" data-testid="founding-20-tagline">
+              Only 20 founding brands. Hand-picked. We&rsquo;re curating the first 20 independent labels
+              on Unveiled Threads &mdash; selective by design.
+            </p>
+            <FoundingSpotsCounter />
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" data-testid="boosted-brands-grid">
               {boostedBrands.slice(0, 4).map((brand) => (

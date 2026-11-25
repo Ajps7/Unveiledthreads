@@ -29,6 +29,9 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [sellerCap, setSellerCap] = useState(null);
+  const [foundingSpots, setFoundingSpots] = useState(null);
+  const [foundingOverrideInput, setFoundingOverrideInput] = useState('');
+  const [foundingOverrideSaving, setFoundingOverrideSaving] = useState(false);
   const [applications, setApplications] = useState([]);
   const [disputes, setDisputes] = useState([]);
   const [disputeProcessing, setDisputeProcessing] = useState(null);
@@ -54,22 +57,42 @@ export default function AdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const [statsRes, brandsRes, productsRes, capRes, disputesRes] = await Promise.all([
+      const [statsRes, brandsRes, productsRes, capRes, disputesRes, foundingRes] = await Promise.all([
         axios.get(`${API}/api/admin/stats`, { withCredentials: true }),
         axios.get(`${API}/api/brands`),
         axios.get(`${API}/api/products?limit=200`),
         axios.get(`${API}/api/admin/seller-cap`, { withCredentials: true }),
         axios.get(`${API}/api/admin/disputes?status=open`, { withCredentials: true }),
+        axios.get(`${API}/api/brands/founding-spots`),
       ]);
       setStats(statsRes.data);
       setBrands(brandsRes.data);
       setProducts(productsRes.data);
       setSellerCap(capRes.data);
       setDisputes(disputesRes.data);
+      setFoundingSpots(foundingRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveFoundingOverride = async (clearOverride = false) => {
+    setFoundingOverrideSaving(true);
+    try {
+      const body = clearOverride
+        ? { founding_spots_claimed: null }
+        : { founding_spots_claimed: parseInt(foundingOverrideInput, 10) };
+      await axios.put(`${API}/api/admin/founding-spots`, body, { withCredentials: true });
+      // Re-fetch the authoritative counter so the UI never displays a stale number.
+      const r = await axios.get(`${API}/api/brands/founding-spots`);
+      setFoundingSpots(r.data);
+      if (clearOverride) setFoundingOverrideInput('');
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to update override');
+    } finally {
+      setFoundingOverrideSaving(false);
     }
   };
 
@@ -305,7 +328,7 @@ export default function AdminDashboard() {
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-[#C0C0C0] font-bold mb-1">
-                  MVP Seller Slots
+                  Founding Cohort Slots
                 </p>
                 <p className="text-sm text-[#9CA3AF]">
                   {sellerCap.cap_reached
@@ -324,6 +347,66 @@ export default function AdminDashboard() {
                 {sellerCap.waitlisted} waitlisted
               </span>
             )}
+          </div>
+        )}
+
+        {/* Founding cohort counter + admin override */}
+        {foundingSpots && (
+          <div
+            className="mb-6 border border-white/10 bg-[#0A0A0A] p-5 flex items-center justify-between gap-4 flex-wrap"
+            data-testid="founding-spots-admin"
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className="text-3xl font-black tabular-nums text-[#39FF14]"
+                style={{ fontFamily: 'Clash Display, sans-serif' }}
+                data-testid="founding-spots-admin-count"
+              >
+                {foundingSpots.taken} / {foundingSpots.limit}
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-[#C0C0C0] font-bold mb-1">
+                  Founding Cohort
+                </p>
+                <p className="text-sm text-[#9CA3AF]">
+                  {foundingSpots.remaining > 0
+                    ? `${foundingSpots.remaining} of ${foundingSpots.limit} founding spots left.`
+                    : `Cohort full. Applicants are routed to the waitlist.`}
+                  {' '}Source: <span className={foundingSpots.source === 'override' ? 'text-yellow-300' : 'text-[#9CA3AF]'}>{foundingSpots.source}</span>
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                max={foundingSpots.limit}
+                value={foundingOverrideInput}
+                onChange={(e) => setFoundingOverrideInput(e.target.value)}
+                placeholder={`0–${foundingSpots.limit}`}
+                className="input-brutalist w-24 text-center"
+                data-testid="founding-override-input"
+                disabled={foundingOverrideSaving}
+              />
+              <button
+                onClick={() => saveFoundingOverride(false)}
+                disabled={foundingOverrideSaving || foundingOverrideInput === ''}
+                className="btn-secondary text-xs px-3 py-2 disabled:opacity-50"
+                data-testid="founding-override-save"
+              >
+                Set
+              </button>
+              {foundingSpots.source === 'override' && (
+                <button
+                  onClick={() => saveFoundingOverride(true)}
+                  disabled={foundingOverrideSaving}
+                  className="text-[11px] text-[#9CA3AF] hover:text-white underline"
+                  data-testid="founding-override-clear"
+                >
+                  Clear override
+                </button>
+              )}
+            </div>
           </div>
         )}
 

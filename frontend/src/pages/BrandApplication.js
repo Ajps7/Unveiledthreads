@@ -155,7 +155,7 @@ export default function BrandApplication() {
       ctaTo = '/brand/dashboard';
     } else if (waitlisted) {
       title = "YOU'RE ON THE WAITLIST";
-      message = "We're capping the platform at a small number of sellers during our MVP phase to make sure every brand gets proper attention. We've saved your application — we'll email you the moment a slot opens up.";
+      message = "We're keeping the founding cohort hand-picked and limited, so every brand gets proper attention. We've saved your application — we'll email you the moment a spot opens up.";
     }
     return (
       <div className="min-h-screen bg-[#050505]">

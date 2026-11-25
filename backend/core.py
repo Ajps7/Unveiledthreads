@@ -638,7 +638,7 @@ REFERRALS_ENABLED = os.environ.get("REFERRALS_ENABLED", "false").lower() == "tru
 REFERRAL_CREDIT = 5.0  # £5 credit
 
 # First N approved brands are permanently marked as Founding Brands
-FOUNDING_BRAND_LIMIT = int(os.environ.get("FOUNDING_BRAND_LIMIT", "40"))
+FOUNDING_BRAND_LIMIT = int(os.environ.get("FOUNDING_BRAND_LIMIT", "20"))
 
 # ---- Payout delay (buyer protection) ----
 # Applied at the Stripe Connect account level, so it covers EVERY order —
@@ -1453,16 +1453,16 @@ async def send_application_received_email(
         founding_block = f"""
             <div style="border:1px solid #39FF14;background:#0A0A0A;padding:20px;margin:24px 0;">
                 <p style="color:#39FF14;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 8px;">
-                    Founding Brand — first 40 only
+                    The Founding {FOUNDING_BRAND_LIMIT} &mdash; hand-picked
                 </p>
                 <p style="color:#fff;font-size:16px;font-weight:bold;margin:0 0 8px;">
                     You're in line for the Founding Brand badge.
                 </p>
                 <p style="color:#9CA3AF;font-size:13px;line-height:1.6;margin:0;">
-                    The first 40 brands approved on Unveiled Threads get a permanent, exclusive
+                    The first {FOUNDING_BRAND_LIMIT} brands hand-picked onto Unveiled Threads get a permanent, exclusive
                     Founding Brand badge on their profile — a metallic mark that stays with your
                     shop forever. Only
-                    <strong style="color:#39FF14;">{founding_remaining}</strong> of 40 spots
+                    <strong style="color:#39FF14;">{founding_remaining}</strong> of {FOUNDING_BRAND_LIMIT} spots
                     left. Tell your community while the badge is still up for grabs.
                 </p>
             </div>

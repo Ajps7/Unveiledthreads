@@ -47,13 +47,54 @@ async def get_boosted_brands():
 
 @api_router.get("/brands/founding-spots")
 async def get_founding_spots():
-    """Public counter for the Founding Brand programme (first N brands)."""
-    taken = await db.brands.count_documents({"is_founding": True})
+    """Public counter for the Founding Brand programme (first N brands).
+
+    Source of truth, in order of precedence:
+      1. Admin override `founding_spots_claimed` on the singleton
+         `settings` doc (lets the owner correct the number when a brand is
+         secretly onboarded, is a soft launch, or when the computed value
+         lags reality for any other reason).
+      2. Live count of `is_founding: True` brands in the DB.
+    """
+    settings = await db.settings.find_one({"_id": "singleton"}) or {}
+    override = settings.get("founding_spots_claimed")
+    if isinstance(override, int) and override >= 0:
+        taken = override
+    else:
+        taken = await db.brands.count_documents({"is_founding": True})
+    taken = min(taken, FOUNDING_BRAND_LIMIT)
     return {
         "limit": FOUNDING_BRAND_LIMIT,
-        "taken": min(taken, FOUNDING_BRAND_LIMIT),
+        "taken": taken,
         "remaining": max(0, FOUNDING_BRAND_LIMIT - taken),
+        "source": "override" if isinstance(override, int) and override >= 0 else "computed",
     }
+
+
+@api_router.put("/admin/founding-spots")
+async def set_founding_spots_claimed(payload: dict, request: Request):
+    """Admin override for the founding-spots counter.
+
+    Body: `{ "founding_spots_claimed": int | null }` — pass `null` to clear
+    the override and revert to the live computed count.
+    """
+    await require_admin(request)
+    val = payload.get("founding_spots_claimed")
+    if val is None:
+        await db.settings.update_one(
+            {"_id": "singleton"},
+            {"$unset": {"founding_spots_claimed": ""}},
+            upsert=True,
+        )
+        return {"ok": True, "cleared": True}
+    if not isinstance(val, int) or val < 0 or val > FOUNDING_BRAND_LIMIT:
+        raise HTTPException(status_code=400, detail=f"founding_spots_claimed must be an integer between 0 and {FOUNDING_BRAND_LIMIT}")
+    await db.settings.update_one(
+        {"_id": "singleton"},
+        {"$set": {"founding_spots_claimed": val}},
+        upsert=True,
+    )
+    return {"ok": True, "founding_spots_claimed": val, "limit": FOUNDING_BRAND_LIMIT}
 
 @api_router.get("/brands/brand-of-week")
 async def get_brand_of_week(response: Response):
