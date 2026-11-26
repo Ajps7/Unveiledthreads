@@ -266,29 +266,46 @@ export default function BrandApplication() {
             />
           </div>
 
-          {/* Location */}
+          {/* Location — adapts to the selected banking country. GB brands get
+              the curated UK-city dropdown; brands registered anywhere else type
+              their own city / region so we don't force a UK city on an Irish
+              (or German, French, etc.) brand. */}
           <div>
             <label className="block text-sm font-medium text-[#C0C0C0] uppercase tracking-wider mb-2">
-              Where you operate (UK) *
+              Where you operate *
             </label>
-            <Select 
-              value={formData.location} 
-              onValueChange={(value) => setFormData({ ...formData, location: value })}
-              required
-            >
-              <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="location-select">
-                <SelectValue placeholder="Select your location" />
-              </SelectTrigger>
-              <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
-                {UK_LOCATIONS.map((loc) => (
-                  <SelectItem key={loc} value={loc} className="text-white hover:bg-white/10 rounded-none">
-                    {loc}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {formData.stripe_country === 'GB' ? (
+              <Select
+                value={formData.location}
+                onValueChange={(value) => setFormData({ ...formData, location: value })}
+                required
+              >
+                <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="location-select">
+                  <SelectValue placeholder="Select your UK city" />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0F0F0F] border-white/10 rounded-none">
+                  {UK_LOCATIONS.map((loc) => (
+                    <SelectItem key={loc} value={loc} className="text-white hover:bg-white/10 rounded-none">
+                      {loc}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={formData.location}
+                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                className="input-brutalist"
+                placeholder="e.g. Dublin, Berlin, Lisbon"
+                maxLength={80}
+                required
+                data-testid="location-input"
+              />
+            )}
             <p className="text-[10px] text-[#6B7280] mt-1.5">
-              Where your brand operates in the UK. Buyers see this as your city — you'll still be shown as a UK brand for curation.
+              {formData.stripe_country === 'GB'
+                ? "Your UK city. Buyers see this as your location — you'll still be shown as a UK brand for curation."
+                : "Your city / region. Buyers see this as your location — you'll still be shown as a UK brand for curation."}
             </p>
           </div>
 
@@ -299,7 +316,15 @@ export default function BrandApplication() {
             </label>
             <Select
               value={formData.stripe_country}
-              onValueChange={(value) => setFormData({ ...formData, stripe_country: value })}
+              onValueChange={(value) => setFormData({
+                ...formData,
+                stripe_country: value,
+                // Reset the operating-location when switching between the UK
+                // dropdown and the free-text input so a stale "London" (or a
+                // typed non-UK city) never silently persists under the wrong
+                // control. The user explicitly re-enters it, which is safer.
+                location: (value === 'GB') !== (formData.stripe_country === 'GB') ? '' : formData.location,
+              })}
               required
             >
               <SelectTrigger className="w-full bg-transparent border-white/20 rounded-none text-white" data-testid="stripe-country-select">
