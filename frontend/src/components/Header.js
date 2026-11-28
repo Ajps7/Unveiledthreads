@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -8,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { User, LogOut, ShoppingBag, LayoutDashboard, Shield, Menu, X, Heart, Bell, BarChart3, Package, MessageSquare, Gift, ShieldCheck } from 'lucide-react';
+import { User, LogOut, ShoppingBag, LayoutDashboard, Shield, Menu, X, Heart, Bell, BarChart3, Package, MessageSquare, Gift, ShieldCheck, ShoppingCart } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -16,6 +17,7 @@ const API = process.env.REACT_APP_BACKEND_URL;
 
 export default function Header() {
   const { user, logout } = useAuth();
+  const { count: cartCount } = useCart();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -106,6 +108,19 @@ export default function Header() {
 
           {/* User Menu */}
           <div className="flex items-center gap-4">
+            {/* Cart icon — shown to everyone, including guests. Hidden only
+                when the viewer is a brand (sellers don't buy on their own
+                storefront). */}
+            {(!user || user.role === 'user') && (
+              <Link to="/cart" className="relative text-[#C0C0C0] hover:text-white transition-colors" data-testid="header-cart" aria-label="Cart">
+                <ShoppingCart className="w-5 h-5" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 bg-[#39FF14] text-black text-[10px] font-bold rounded-full flex items-center justify-center" data-testid="cart-badge">
+                    {cartCount > 9 ? '9+' : cartCount}
+                  </span>
+                )}
+              </Link>
+            )}
             {user ? (
               <>
                 {/* Messages icon */}

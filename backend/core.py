@@ -596,6 +596,38 @@ class ProductPurchaseRequest(BaseModel):
     bottom_size: Optional[str] = None
     origin_url: str
 
+
+# ============ MULTI-ITEM CART CHECKOUT (added 2026-11) ============
+# Cart is single-brand only by product decision (one brand per basket) —
+# simpler Stripe Direct Charge model, each brand remains merchant of
+# record. "Buy Now" still goes through the single-item endpoints above;
+# the cart endpoints below are purely additive.
+
+class CartLineItem(BaseModel):
+    """One line in a multi-item cart. Sizes mirror ProductPurchaseRequest
+    so sets with split sizing (top_size / bottom_size) work identically."""
+    product_id: str
+    size: Optional[str] = None
+    top_size: Optional[str] = None
+    bottom_size: Optional[str] = None
+    quantity: int = Field(default=1, ge=1, le=10)
+
+
+class CartCheckoutRequest(BaseModel):
+    """Authenticated multi-item cart checkout. All items MUST be from the
+    same brand — enforced server-side."""
+    items: List[CartLineItem] = Field(min_length=1, max_length=20)
+    origin_url: str
+
+
+class CartGuestCheckoutRequest(BaseModel):
+    """Guest multi-item cart checkout. Same single-brand rule."""
+    items: List[CartLineItem] = Field(min_length=1, max_length=20)
+    origin_url: str
+    buyer_email: EmailStr
+    shipping_address: GuestShippingAddress
+    marketing_opt_in: bool = False
+
 class OrderResponse(BaseModel):
     id: str
     product_id: str

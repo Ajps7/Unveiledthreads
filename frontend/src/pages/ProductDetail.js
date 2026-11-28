@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, MapPin, ShoppingBag, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp, Info, Tag } from 'lucide-react';
+import { useCart } from '../context/CartContext';
+import { ArrowLeft, MapPin, ShoppingBag, ShoppingCart, Loader2, Star, Truck, MessageSquare, Send, ThumbsUp, Info, Tag } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { ProductDescription } from '../components/product/ProductDescription';
@@ -54,6 +55,8 @@ function ReviewItem({ review }) {
 export default function ProductDetail() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { addItem, replaceWith } = useCart();
+  const navigate = useNavigate();
   const [product, setProduct] = useState(null);
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedTopSize, setSelectedTopSize] = useState('');
@@ -138,6 +141,42 @@ export default function ProductDetail() {
       alert(err.response?.data?.detail || 'Failed to create checkout');
     } finally {
       setPurchasing(false);
+    }
+  };
+
+  /** Snapshot a cart line from the current product + selected size. */
+  const buildCartLine = () => ({
+    product_id: id,
+    product_name: product.name,
+    brand_id: product.brand?.id || product.brand_id,
+    brand_name: product.brand?.brand_name || product.brand_name,
+    image: product.images?.[0] || null,
+    unit_price: product.price,
+    shipping_cost: product.shipping_cost || 0,
+    is_preorder: !!product.is_preorder,
+    preorder_ship_date: product.preorder_ship_date || null,
+    listing_type: product.listing_type || 'single',
+    sizing_mode: product.sizing_mode || null,
+    size: isSplitSet ? null : selectedSize,
+    top_size: isSplitSet ? selectedTopSize : null,
+    bottom_size: isSplitSet ? selectedBottomSize : null,
+    quantity: 1,
+  });
+
+  const handleAddToCart = () => {
+    if (!sizeChoiceComplete) return;
+    const line = buildCartLine();
+    const result = addItem(line);
+    if (result.ok) {
+      navigate('/cart');
+      return;
+    }
+    if (result.reason === 'different_brand') {
+      const msg = `Your cart has items from ${result.currentBrandName}. Replace them with items from ${result.incomingBrandName}?`;
+      if (window.confirm(msg)) {
+        replaceWith(line);
+        navigate('/cart');
+      }
     }
   };
 
@@ -429,6 +468,15 @@ export default function ProductDetail() {
             )}
 
             <div className="flex gap-4 mb-4">
+              <Button
+                className="btn-secondary flex-1"
+                disabled={(!product.is_preorder && product.stock === 0) || preorderFull || !sizeChoiceComplete || product.seller_payments_ready === false}
+                onClick={handleAddToCart}
+                data-testid="add-to-cart-button"
+              >
+                <ShoppingCart className="w-5 h-5 mr-2" />
+                Add to Cart
+              </Button>
               <Button
                 className="btn-primary flex-1"
                 disabled={(!product.is_preorder && product.stock === 0) || preorderFull || !sizeChoiceComplete || purchasing || product.seller_payments_ready === false}

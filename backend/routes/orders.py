@@ -551,6 +551,11 @@ def _order_receipt(order: dict) -> dict:
         "total_charged": order.get("total_charged"),
         "is_preorder": bool(order.get("is_preorder")),
         "preorder_ship_date": order.get("preorder_ship_date"),
+        # NEW: multi-item cart orders expose the full line list so the
+        # confirmation page / email can render every line.
+        "items": order.get("items"),
+        "merch_subtotal": order.get("merch_subtotal"),
+        "cart_order": bool(order.get("cart_order")),
     }
 
 async def send_order_receipt_email(order: dict):
@@ -668,6 +673,46 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
     if not is_preorder:
         # Oversell guard: only decrement if stock is still available.
         # Skipped for pre-orders — there is no live stock to decrement.
+        #
+        # Multi-item carts (items[] present) decrement each in-stock line
+        # by its quantity. Mixed baskets (some pre-order, some in-stock)
+        # still hit this branch when `is_preorder` is False on the primary.
+        # For cart orders we always walk items[] so the pre-order path
+        # above is skipped only when every line is a pre-order.
+        pass
+
+    # Stock decrement — single-item path unchanged, cart path walks items[].
+    items = order.get("items") or None
+    if items:
+        for ln in items:
+            if ln.get("is_preorder"):
+                continue  # pre-order lines have no stock to decrement
+            qty = int(ln.get("quantity") or 1)
+            try:
+                p_oid = ObjectId(ln["product_id"])
+            except Exception:
+                logger.error(f"settle_paid_order: invalid product_id in order items: {ln.get('product_id')}")
+                continue
+            stock_result = await db.products.update_one(
+                {"_id": p_oid, "stock": {"$gte": qty}},
+                {"$inc": {"stock": -qty}}
+            )
+            if stock_result.modified_count == 0:
+                await db.orders.update_one({"_id": order["_id"]}, {"$set": {"oversold": True}})
+                logger.error(
+                    f"OVERSOLD (cart): order settled but not enough stock — manual refund required "
+                    f"(order={order['_id']} product={ln['product_id']} qty={qty})"
+                )
+                await create_notification(
+                    user_id=None,
+                    brand_id=order["brand_id"],
+                    notification_type="oversold_order",
+                    title="Action needed: oversold order",
+                    message=f"Order #{str(order['_id'])[-6:]} for {ln.get('product_name')} settled but stock ran out mid-checkout. Please arrange a refund for this line via support.",
+                    metadata={"order_id": str(order["_id"]), "product_id": ln["product_id"]},
+                )
+    elif not is_preorder:
+        # Legacy single-item order — unchanged behaviour.
         stock_result = await db.products.update_one(
             {"_id": ObjectId(order["product_id"]), "stock": {"$gt": 0}},
             {"$inc": {"stock": -1}}

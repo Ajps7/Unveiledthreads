@@ -17,6 +17,7 @@ import routes.connect  # noqa: E402,F401
 import routes.disputes  # noqa: E402,F401
 import routes.uploads  # noqa: E402,F401
 import routes.orders  # noqa: E402,F401
+import routes.cart  # noqa: E402,F401
 import routes.engagement  # noqa: E402,F401
 import routes.reviews  # noqa: E402,F401
 import routes.shipping  # noqa: E402,F401

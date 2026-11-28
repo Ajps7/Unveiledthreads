@@ -1,6 +1,7 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import { CartProvider } from "./context/CartContext";
 import { Toaster } from "./components/ui/sonner";
 
 // Pages
@@ -36,11 +37,14 @@ import BuyerProtection from "./pages/BuyerProtection";
 import Account from "./pages/Account";
 import DeadStock from "./pages/DeadStock";
 import AdminDashboard from "./pages/AdminDashboard";
+import Cart from "./pages/Cart";
+import CartCheckoutGuest from "./pages/CartCheckoutGuest";
 import CookieBanner from "./components/CookieBanner";
 
 function App() {
   return (
     <AuthProvider>
+      <CartProvider>
       <div className="App">
         <BrowserRouter>
           <Routes>
@@ -59,6 +63,7 @@ function App() {
             <Route path="/brand/dashboard" element={<BrandDashboard />} />
             <Route path="/brand/products" element={<MyListings />} />
             <Route path="/brand/import" element={<ImportProducts />} />
+            <Route path="/checkout/guest/cart" element={<CartCheckoutGuest />} />
             <Route path="/checkout/guest/:productId" element={<GuestCheckout />} />
             <Route path="/track" element={<GuestOrderLookup />} />
             <Route path="/brand/add-product" element={<AddProduct />} />
@@ -77,11 +82,13 @@ function App() {
             <Route path="/account" element={<Account />} />
             <Route path="/dead-stock" element={<DeadStock />} />
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/cart" element={<Cart />} />
           </Routes>
           <CookieBanner />
         </BrowserRouter>
         <Toaster />
       </div>
+      </CartProvider>
     </AuthProvider>
   );
 }
