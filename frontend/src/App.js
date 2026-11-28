@@ -39,6 +39,7 @@ import DeadStock from "./pages/DeadStock";
 import AdminDashboard from "./pages/AdminDashboard";
 import Cart from "./pages/Cart";
 import CartCheckoutGuest from "./pages/CartCheckoutGuest";
+import BrandPromotions from "./pages/BrandPromotions";
 import CookieBanner from "./components/CookieBanner";
 
 function App() {
@@ -83,6 +84,7 @@ function App() {
             <Route path="/dead-stock" element={<DeadStock />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/cart" element={<Cart />} />
+            <Route path="/brand/promotions" element={<BrandPromotions />} />
           </Routes>
           <CookieBanner />
         </BrowserRouter>

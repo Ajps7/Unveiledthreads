@@ -544,6 +544,17 @@ export default function BrandDashboard() {
 
         <PayoutsWidget payouts={payouts} />
 
+        {/* Promotions quick-link — short-term code-gated promos */}
+        <div className="mb-12 border border-white/10 bg-[#0A0A0A] p-6 flex items-center justify-between gap-4 flex-wrap" data-testid="promotions-quicklink">
+          <div>
+            <h3 className="text-xl font-bold text-white mb-1" style={{ fontFamily: 'Clash Display, sans-serif' }}>Promotions</h3>
+            <p className="text-sm text-[#9CA3AF]">Run a short-term "spend £X, get Y% off" code on your own products.</p>
+          </div>
+          <Link to="/brand/promotions">
+            <Button className="btn-secondary" data-testid="open-promotions-link">Manage promotions</Button>
+          </Link>
+        </div>
+
         {/* Boost — Coming Soon */}
         <div
           className="mb-12 border border-white/10 bg-[#0A0A0A] p-6 relative overflow-hidden"

@@ -88,6 +88,12 @@ export default function OrderSuccess() {
                 <p className="text-xs text-[#9CA3AF] mb-4">{order.brand_name} · Size {order.size}</p>
                 <div className="space-y-1.5 text-[#9CA3AF]">
                   <div className="flex justify-between"><span>Item</span><span className="text-white">£{(order.price ?? 0).toFixed(2)}</span></div>
+                  {order.discount_code && order.discount_amount > 0 && (
+                    <div className="flex justify-between" data-testid="receipt-discount">
+                      <span className="text-[#39FF14]">{order.discount_percent}% off {order.brand_name} <span className="text-[10px] text-[#9CA3AF]">(code {order.discount_code})</span></span>
+                      <span className="text-[#39FF14]">-£{order.discount_amount.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between"><span>Buyer Protection</span><span className="text-white" data-testid="receipt-buyer-protection">£{(order.platform_fee ?? 0).toFixed(2)}</span></div>
                   {order.credit_applied > 0 && (
                     <div className="flex justify-between"><span>Referral credit</span><span className="text-[#39FF14]">-£{order.credit_applied.toFixed(2)}</span></div>

@@ -24,6 +24,13 @@ export default function CartCheckoutGuest() {
   const [previewError, setPreviewError] = useState('');
   const [previewLoading, setPreviewLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // Discount — picked up from sessionStorage (stashed by Cart page).
+  // Re-validated at submission against the typed email so guest
+  // per-customer limits are honoured.
+  const [appliedCode, setAppliedCode] = useState(() => {
+    try { return (window.sessionStorage.getItem('ut_cart_code') || '').toUpperCase(); } catch (_) { return ''; }
+  });
+  const [codeError, setCodeError] = useState('');
   const [form, setForm] = useState({
     buyer_email: '',
     name: '',
@@ -50,18 +57,24 @@ export default function CartCheckoutGuest() {
         const items = cart.items.map(({ product_id, size, top_size, bottom_size, quantity }) => ({
           product_id, size, top_size, bottom_size, quantity,
         }));
+        const payload = { items, origin_url: window.location.origin };
+        if (appliedCode) payload.code = appliedCode;
         const res = await axios.post(
           `${API}/api/orders/cart/preview`,
-          { items, origin_url: window.location.origin },
+          payload,
         );
         setPreview(res.data);
+        if (appliedCode && !res.data.discount && res.data.discount_error) {
+          setCodeError(res.data.discount_error);
+          setAppliedCode('');
+        }
       } catch (err) {
         setPreviewError(err.response?.data?.detail || 'Could not price your cart.');
       } finally {
         setPreviewLoading(false);
       }
     })();
-  }, [user, isEmpty, cart, navigate]);
+  }, [user, isEmpty, cart, navigate, appliedCode]);
 
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -89,6 +102,7 @@ export default function CartCheckoutGuest() {
           country: form.country.trim().toUpperCase(),
         },
         marketing_opt_in: form.marketing_opt_in,
+        ...(appliedCode ? { code: appliedCode } : {}),
       });
       try { sessionStorage.setItem('guest_lookup_token', data.lookup_token); } catch { /* ignore */ }
       window.location.href = data.url;
@@ -166,9 +180,18 @@ export default function CartCheckoutGuest() {
             </ul>
             <div className="border-t border-white/10 px-4 py-4 text-sm space-y-2">
               <div className="flex justify-between text-[#9CA3AF]"><span>Subtotal</span><span className="text-white">£{preview.merch_subtotal.toFixed(2)}</span></div>
+              {preview.discount && (
+                <div className="flex justify-between text-[#39FF14]" data-testid="guest-cart-discount-line">
+                  <span>{preview.discount.percent_off}% off {preview.discount.brand_name} <span className="text-[10px] text-[#9CA3AF]">(code {preview.discount.code})</span></span>
+                  <span className="font-bold">-£{preview.discount.amount.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-[#9CA3AF]"><span>Buyer Protection</span><span className="text-white">£{preview.platform_fee.toFixed(2)}</span></div>
               <div className="flex justify-between text-[#9CA3AF]"><span>Shipping</span><span className="text-white">{preview.shipping_cost > 0 ? `£${preview.shipping_cost.toFixed(2)}` : 'Free'}</span></div>
               <div className="flex justify-between pt-2 border-t border-white/10 font-bold"><span className="text-white">Total</span><span className="text-[#39FF14]" data-testid="guest-cart-total">£{preview.total_charged.toFixed(2)}</span></div>
+              {codeError && (
+                <p className="text-[11px] text-red-400 mt-1" data-testid="guest-cart-code-error">{codeError}</p>
+              )}
               {preview.mixed_fulfilment && (
                 <p className="text-[11px] text-[#39FF14]">Items ship separately — in-stock first, pre-order on its dispatch date.</p>
               )}

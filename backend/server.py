@@ -18,6 +18,7 @@ import routes.disputes  # noqa: E402,F401
 import routes.uploads  # noqa: E402,F401
 import routes.orders  # noqa: E402,F401
 import routes.cart  # noqa: E402,F401
+import routes.discounts  # noqa: E402,F401
 import routes.engagement  # noqa: E402,F401
 import routes.reviews  # noqa: E402,F401
 import routes.shipping  # noqa: E402,F401
@@ -416,6 +417,11 @@ async def startup_event():
     await db.community_posts.create_index("brand_tag")
     await db.community_comments.create_index("post_id")
     await db.product_comments.create_index("product_id")
+    # Discount codes — unique code (case-insensitive is enforced at write
+    # time by normalising to upper), fast brand+active lookup for the
+    # brand's own promotions list.
+    await db.discounts.create_index("code", unique=True)
+    await db.discounts.create_index([("brand_id", 1), ("active", 1)])
     # Password reset tokens: lookup by hash; auto-expire docs 7 days after expiry
     await db.password_reset_tokens.create_index("token_hash", unique=True)
     await db.password_reset_tokens.create_index("user_id")

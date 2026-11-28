@@ -618,6 +618,9 @@ class CartCheckoutRequest(BaseModel):
     same brand — enforced server-side."""
     items: List[CartLineItem] = Field(min_length=1, max_length=20)
     origin_url: str
+    # Optional brand-scoped discount code. Re-validated server-side at
+    # checkout time; a tampered client amount is always ignored.
+    code: Optional[str] = Field(default=None, max_length=32)
 
 
 class CartGuestCheckoutRequest(BaseModel):
@@ -627,6 +630,77 @@ class CartGuestCheckoutRequest(BaseModel):
     buyer_email: EmailStr
     shipping_address: GuestShippingAddress
     marketing_opt_in: bool = False
+    code: Optional[str] = Field(default=None, max_length=32)
+
+
+# ============ DISCOUNT CODES (added 2026-11, Phase 2) ============
+# Discount records are TYPED — `type` dispatches to a server-side evaluator
+# so future deal shapes (BOGO, buy-X-get-Y) extend without reworking this.
+# A code ALWAYS belongs to exactly one brand (brand_id) and can discount
+# ONLY that brand's own products.
+
+DISCOUNT_TYPES = {"threshold_percent"}
+
+
+class DiscountCreate(BaseModel):
+    """Payload for a brand creating a new code on their own products."""
+    code: str = Field(min_length=3, max_length=32)
+    type: str = "threshold_percent"
+    percent_off: int = Field(ge=1, le=90)
+    threshold_amount: int = Field(ge=0, description="Minimum spend in PENCE to unlock")
+    starts_at: datetime
+    ends_at: datetime
+    usage_limit: Optional[int] = Field(default=None, ge=1)
+    per_customer_limit: int = Field(default=1, ge=1, le=10)
+    active: bool = True
+
+    @field_validator("code")
+    @classmethod
+    def _normalise_code(cls, v: str) -> str:
+        # Codes are stored upper-case and matched case-insensitively. Reject
+        # whitespace / punctuation so copy-paste from PDFs can't bypass the
+        # uniqueness constraint.
+        v = (v or "").strip().upper()
+        if not v or not all(c.isalnum() for c in v):
+            raise ValueError("Code must be letters and numbers only (A-Z, 0-9).")
+        return v
+
+    @field_validator("type")
+    @classmethod
+    def _valid_type(cls, v: str) -> str:
+        if v not in DISCOUNT_TYPES:
+            raise ValueError(f"Unsupported discount type: {v}")
+        return v
+
+    @model_validator(mode="after")
+    def _window_valid(self):
+        if self.ends_at <= self.starts_at:
+            raise ValueError("ends_at must be after starts_at")
+        return self
+
+
+class DiscountUpdate(BaseModel):
+    """Partial update — a brand can pause, re-open, or shorten a code
+    without recreating it. Immutable: `brand_id`, `code`, `type`.
+    """
+    percent_off: Optional[int] = Field(default=None, ge=1, le=90)
+    threshold_amount: Optional[int] = Field(default=None, ge=0)
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    usage_limit: Optional[int] = Field(default=None, ge=1)
+    per_customer_limit: Optional[int] = Field(default=None, ge=1, le=10)
+    active: Optional[bool] = None
+
+
+class DiscountValidateRequest(BaseModel):
+    """Public endpoint — buyers call this from the cart page to check a
+    code before checkout. Returns the computed discount when applicable,
+    or a clear user-facing message otherwise."""
+    code: str = Field(min_length=1, max_length=32)
+    items: List[CartLineItem] = Field(min_length=1, max_length=20)
+    # Guest flow only — the per-customer limit is counted against this
+    # email when the buyer isn't signed in.
+    buyer_email: Optional[EmailStr] = None
 
 class OrderResponse(BaseModel):
     id: str

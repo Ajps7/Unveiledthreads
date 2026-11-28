@@ -551,11 +551,14 @@ def _order_receipt(order: dict) -> dict:
         "total_charged": order.get("total_charged"),
         "is_preorder": bool(order.get("is_preorder")),
         "preorder_ship_date": order.get("preorder_ship_date"),
-        # NEW: multi-item cart orders expose the full line list so the
-        # confirmation page / email can render every line.
         "items": order.get("items"),
         "merch_subtotal": order.get("merch_subtotal"),
         "cart_order": bool(order.get("cart_order")),
+        # Discount surface — null on orders placed without a code.
+        "discount_code": order.get("discount_code"),
+        "discount_amount": order.get("discount_amount") or 0,
+        "discount_percent": order.get("discount_percent"),
+        "discounted_subtotal": order.get("discounted_subtotal"),
     }
 
 async def send_order_receipt_email(order: dict):
@@ -573,6 +576,21 @@ async def send_order_receipt_email(order: dict):
         f'<tr><td style="{row_style}">Referral credit</td><td style="{val_style}">-£{credit:.2f}</td></tr>'
         if credit > 0 else ""
     )
+    # Discount row — only present on orders that used a brand-scoped code.
+    discount_amount = order.get("discount_amount") or 0
+    discount_code = order.get("discount_code")
+    discount_percent = order.get("discount_percent")
+    discount_row = ""
+    if discount_amount and discount_code:
+        label_bits = []
+        if discount_percent:
+            label_bits.append(f"{discount_percent}% off")
+        label_bits.append(esc(order.get("brand_name", "")))
+        label_bits.append(f"(code {esc(discount_code)})")
+        discount_row = (
+            f'<tr><td style="{row_style}">{" ".join(label_bits)}</td>'
+            f'<td style="{val_style}">-£{discount_amount:.2f}</td></tr>'
+        )
 
     # Pre-order banner — added ONLY when the order is a pre-order so existing
     # in-stock receipts are unchanged. Escapes every user-provided value.
@@ -607,6 +625,7 @@ async def send_order_receipt_email(order: dict):
             <p style="color:#9CA3AF;font-size:12px;margin:0 0 16px;">{esc(order.get('brand_name', ''))} &middot; Size {esc(order.get('size', ''))}</p>
             <table style="width:100%;border-collapse:collapse;">
                 <tr><td style="{row_style}">Item</td><td style="{val_style}">£{(order.get('price') or 0):.2f}</td></tr>
+                {discount_row}
                 <tr><td style="{row_style}">Buyer Protection</td><td style="{val_style}">£{(order.get('platform_fee') or 0):.2f}</td></tr>
                 {credit_row}
                 <tr><td style="{row_style}">Shipping</td><td style="{val_style}">{shipping_str}</td></tr>
@@ -780,6 +799,19 @@ async def settle_paid_order(order: dict, payment_intent_id: Optional[str] = None
     
     if not order.get("receipt_email_sent"):
         await send_order_receipt_email(order)
+
+    # Discount redemption — atomic increment ONLY on successful settlement
+    # so an abandoned Checkout never consumes a usage_limit slot.
+    discount_code = order.get("discount_code")
+    if discount_code:
+        try:
+            await db.discounts.update_one(
+                {"code": discount_code},
+                {"$inc": {"used_count": 1}, "$set": {"last_used_at": now}},
+            )
+        except Exception as e:
+            # Never let a reporting update fail the settlement.
+            logger.warning(f"Discount redemption count update failed for {discount_code}: {e}")
     return True
 
 async def reconcile_pending_orders() -> list:

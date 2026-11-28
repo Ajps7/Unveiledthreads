@@ -150,24 +150,45 @@ async def _validate_and_price_cart(items: List[CartLineItem]) -> Tuple[dict, Lis
     return brand_doc, resolved_lines, round(merch_subtotal, 2), round(total_shipping, 2)
 
 
-def _build_stripe_line_items(lines: List[dict], brand_name: str, fee_charged: float, total_shipping: float, credit_applied: float = 0) -> list:
+def _build_stripe_line_items(lines: List[dict], brand_name: str, fee_charged: float, total_shipping: float, credit_applied: float = 0, discount: Optional[dict] = None) -> list:
     """Build Stripe Checkout line_items array: one entry per cart line
     (quantity preserved), plus a Buyer Protection line and a Shipping line
-    (if > 0)."""
+    (if > 0).
+
+    A `discount` {code, percent_off, amount, brand_name} applies the
+    percent uniformly to EVERY merchandise line (so Stripe's sub-total
+    equals the discounted merch subtotal). The saving is also surfaced
+    in the line description so buyers see it on the hosted page.
+    Buyer Protection and Shipping are NEVER discounted — same rule as
+    the preview endpoint. Stripe doesn't allow negative unit_amount so
+    we can't add a "- Discount" line; the per-line reduction is the
+    canonical way to show it on the hosted page."""
+    pct = 0
+    discount_label = ""
+    if discount and discount.get("percent_off"):
+        pct = int(discount["percent_off"])
+        discount_label = f" — {pct}% off applied (code {discount.get('code')})"
     stripe_lines = []
     for ln in lines:
         name_parts = [ln["product_name"]]
         if ln.get("size"):
             name_parts.append(f"({ln['size']})")
+        # Apply the percent reduction to each merchandise line's unit
+        # price (rounded in PENCE). A client-sent discount is not trusted
+        # — only the server's `discount` dict reaches here.
+        unit_pence = int(round(ln["unit_price"] * 100))
+        if pct > 0:
+            unit_pence = int(round(unit_pence * (100 - pct) / 100))
         stripe_lines.append({
             "price_data": {
                 "currency": "gbp",
                 "product_data": {
                     "name": " ".join(name_parts),
-                    "description": f"Sold by {brand_name} via Unveiled Threads"
-                                   + (" — pre-order" if ln.get("is_preorder") else ""),
+                    "description": (f"Sold by {brand_name} via Unveiled Threads"
+                                    + (" — pre-order" if ln.get("is_preorder") else "")
+                                    + discount_label),
                 },
-                "unit_amount": int(round(ln["unit_price"] * 100)),
+                "unit_amount": max(unit_pence, 0),
             },
             "quantity": ln["quantity"],
         })
@@ -205,7 +226,23 @@ async def create_cart_checkout(payload: CartCheckoutRequest, request: Request):
     user = await get_current_user(request)
     brand_doc, lines, merch_subtotal, total_shipping = await _validate_and_price_cart(payload.items)
 
-    platform_fee = calculate_buyer_fee(merch_subtotal)
+    # Server-side discount re-validation. A client-sent discount amount
+    # is always ignored — only the `code` string is trusted, and only
+    # after it re-passes evaluate_discount against the current cart.
+    from routes.discounts import resolve_cart_discount
+    code_res = await resolve_cart_discount(
+        payload.code, str(brand_doc["_id"]), merch_subtotal, user["id"], is_guest=False,
+    )
+    if payload.code and not code_res.get("applied"):
+        # A code was supplied but it failed re-validation at the final step
+        # (e.g. window just closed, cap just hit). Fail cleanly instead of
+        # silently charging the full price.
+        raise HTTPException(status_code=400, detail=code_res.get("message") or "This code can't be applied.")
+    applied = code_res.get("applied")
+    discount_amount = (applied["discount_pence"] / 100) if applied else 0.0
+    discounted_subtotal = round(merch_subtotal - discount_amount, 2)
+
+    platform_fee = calculate_buyer_fee(discounted_subtotal)
 
     credit_applied = 0.0
     if REFERRALS_ENABLED:
@@ -215,7 +252,7 @@ async def create_cart_checkout(payload: CartCheckoutRequest, request: Request):
             if available > 0:
                 credit_applied = round(min(available, platform_fee), 2)
     fee_charged = round(platform_fee - credit_applied, 2)
-    total_charged = round(merch_subtotal + fee_charged + total_shipping, 2)
+    total_charged = round(discounted_subtotal + fee_charged + total_shipping, 2)
 
     api_key = os.environ.get("STRIPE_API_KEY")
     stripe_sdk.api_key = api_key
@@ -236,11 +273,13 @@ async def create_cart_checkout(payload: CartCheckoutRequest, request: Request):
         "line_count": str(len(lines)),
         "primary_product_id": primary["product_id"],
         "merch_subtotal": str(merch_subtotal),
+        "discount_code": applied["code"] if applied else "",
+        "discount_amount": str(discount_amount),
         "platform_fee": str(fee_charged),
         "shipping_cost": str(total_shipping),
     }
 
-    stripe_lines = _build_stripe_line_items(lines, brand_doc.get("brand_name", ""), fee_charged, total_shipping, credit_applied)
+    stripe_lines = _build_stripe_line_items(lines, brand_doc.get("brand_name", ""), fee_charged, total_shipping, credit_applied, discount=applied)
 
     payment_intent_data = {"metadata": metadata}
     fee_pence = int(round(fee_charged * 100))
@@ -282,7 +321,7 @@ async def create_cart_checkout(payload: CartCheckoutRequest, request: Request):
         "platform_fee": fee_charged,
         "credit_applied": credit_applied,
         "total_charged": total_charged,
-        "brand_payout": round(merch_subtotal + total_shipping, 2),
+        "brand_payout": round(discounted_subtotal + total_shipping, 2),
         "stripe_account_id": brand_doc["stripe_account_id"],
         "status": "initiated",
         "shipping_status": "confirmed",
@@ -296,6 +335,13 @@ async def create_cart_checkout(payload: CartCheckoutRequest, request: Request):
         "items": lines,
         "merch_subtotal": merch_subtotal,
         "cart_order": True,
+        # Discount — null when no code was applied. `discount_code` is
+        # the stored normalised (upper-case) code string. Kept flat so
+        # analytics / reporting can `$group` on code directly.
+        "discount_code": applied["code"] if applied else None,
+        "discount_amount": discount_amount,
+        "discount_percent": applied["percent_off"] if applied else None,
+        "discounted_subtotal": discounted_subtotal,
         "created_at": now,
     }
     await db.orders.insert_one(order_doc)
@@ -321,10 +367,22 @@ async def create_cart_checkout(payload: CartCheckoutRequest, request: Request):
 async def create_cart_checkout_guest(payload: CartGuestCheckoutRequest, request: Request):
     brand_doc, lines, merch_subtotal, total_shipping = await _validate_and_price_cart(payload.items)
 
-    platform_fee = calculate_buyer_fee(merch_subtotal)
+    # Discount re-validation keyed to the guest's email (lowercased).
+    from routes.discounts import resolve_cart_discount
+    buyer_email_norm = payload.buyer_email.strip().lower()
+    code_res = await resolve_cart_discount(
+        payload.code, str(brand_doc["_id"]), merch_subtotal, buyer_email_norm, is_guest=True,
+    )
+    if payload.code and not code_res.get("applied"):
+        raise HTTPException(status_code=400, detail=code_res.get("message") or "This code can't be applied.")
+    applied = code_res.get("applied")
+    discount_amount = (applied["discount_pence"] / 100) if applied else 0.0
+    discounted_subtotal = round(merch_subtotal - discount_amount, 2)
+
+    platform_fee = calculate_buyer_fee(discounted_subtotal)
     credit_applied = 0.0
     fee_charged = round(platform_fee, 2)
-    total_charged = round(merch_subtotal + fee_charged + total_shipping, 2)
+    total_charged = round(discounted_subtotal + fee_charged + total_shipping, 2)
 
     api_key = os.environ.get("STRIPE_API_KEY")
     stripe_sdk.api_key = api_key
@@ -347,11 +405,13 @@ async def create_cart_checkout_guest(payload: CartGuestCheckoutRequest, request:
         "line_count": str(len(lines)),
         "primary_product_id": primary["product_id"],
         "merch_subtotal": str(merch_subtotal),
+        "discount_code": applied["code"] if applied else "",
+        "discount_amount": str(discount_amount),
         "platform_fee": str(fee_charged),
         "shipping_cost": str(total_shipping),
     }
 
-    stripe_lines = _build_stripe_line_items(lines, brand_doc.get("brand_name", ""), fee_charged, total_shipping)
+    stripe_lines = _build_stripe_line_items(lines, brand_doc.get("brand_name", ""), fee_charged, total_shipping, discount=applied)
 
     payment_intent_data = {"metadata": metadata}
     fee_pence = int(round(fee_charged * 100))
@@ -375,7 +435,6 @@ async def create_cart_checkout_guest(payload: CartGuestCheckoutRequest, request:
         raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
 
     now = datetime.now(timezone.utc)
-    buyer_email_norm = payload.buyer_email.strip().lower()
     order_doc = {
         "session_id": session.id,
         "buyer_id": None,
@@ -392,7 +451,7 @@ async def create_cart_checkout_guest(payload: CartGuestCheckoutRequest, request:
         "platform_fee": fee_charged,
         "credit_applied": credit_applied,
         "total_charged": total_charged,
-        "brand_payout": round(merch_subtotal + total_shipping, 2),
+        "brand_payout": round(discounted_subtotal + total_shipping, 2),
         "stripe_account_id": brand_doc["stripe_account_id"],
         "status": "initiated",
         "shipping_status": "confirmed",
@@ -406,6 +465,10 @@ async def create_cart_checkout_guest(payload: CartGuestCheckoutRequest, request:
         "items": lines,
         "merch_subtotal": merch_subtotal,
         "cart_order": True,
+        "discount_code": applied["code"] if applied else None,
+        "discount_amount": discount_amount,
+        "discount_percent": applied["percent_off"] if applied else None,
+        "discounted_subtotal": discounted_subtotal,
         "guest_order": True,
         "lookup_token": lookup_token,
         "marketing_opt_in": bool(payload.marketing_opt_in),
@@ -451,11 +514,35 @@ async def preview_cart(payload: CartCheckoutRequest, request: Request):
     checked out now. Never trust the client for pricing — this is the
     single source of truth for what buyers see on the cart page."""
     brand_doc, lines, merch_subtotal, total_shipping = await _validate_and_price_cart(payload.items)
-    platform_fee = calculate_buyer_fee(merch_subtotal)
-    # Preview does not consume referral credit; show the gross fee so
-    # the client can display a hint if credit will be applied at checkout.
+
+    # Optional discount code — re-evaluated server-side on EVERY preview
+    # call. The buyer can reach this endpoint without being signed in
+    # (guest flow), so we only look up a per-user id when a session exists.
+    buyer_identifier: Optional[str] = None
+    is_guest = True
+    try:
+        user = await get_current_user(request)
+        buyer_identifier = user["id"]
+        is_guest = False
+    except HTTPException:
+        pass
+
+    # Lazy-import to avoid a hard import cycle (discounts depends on
+    # _validate_and_price_cart which lives here).
+    from routes.discounts import resolve_cart_discount
+    code_res = await resolve_cart_discount(
+        payload.code, str(brand_doc["_id"]), merch_subtotal, buyer_identifier, is_guest,
+    )
+    applied = code_res.get("applied")
+    discount_amount = (applied["discount_pence"] / 100) if applied else 0.0
+    discounted_subtotal = round(merch_subtotal - discount_amount, 2)
+
+    # Platform application fee is computed on the DISCOUNTED merch amount
+    # (no-op at 0% founding commission, but wired correctly now).
+    platform_fee = calculate_buyer_fee(discounted_subtotal)
     fee_charged = round(platform_fee, 2)
-    total_charged = round(merch_subtotal + fee_charged + total_shipping, 2)
+    total_charged = round(discounted_subtotal + fee_charged + total_shipping, 2)
+
     any_preorder = any(ln["is_preorder"] for ln in lines)
     has_in_stock = any(not ln["is_preorder"] for ln in lines)
     return {
@@ -468,4 +555,15 @@ async def preview_cart(payload: CartCheckoutRequest, request: Request):
         "total_charged": total_charged,
         "mixed_fulfilment": any_preorder and has_in_stock,
         "has_preorder": any_preorder,
+        # Discount surface — `discount` is null when no code was sent or
+        # the code failed; `discount_error` carries the user-facing reason.
+        "discount": {
+            "code": applied["code"],
+            "percent_off": applied["percent_off"],
+            "amount": discount_amount,
+            "message": applied["message"],
+            "brand_name": applied["brand_name"],
+        } if applied else None,
+        "discount_error": None if applied else code_res.get("message"),
+        "progress_hint": bool(code_res.get("progress_hint")),
     }
